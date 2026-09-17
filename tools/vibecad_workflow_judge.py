@@ -132,7 +132,8 @@ def judge_step(
     if not enabled:
         return {"called": False, "skipped": "judge_disabled"}
     api_key = str(os.environ.get("TYPESAFE_API_KEY") or "").strip()
-    if not api_key:
+    # A provided transport is a test/mock. Live HTTP still requires a key.
+    if transport is None and not api_key:
         return {"called": False, "skipped": "typesafe_key_absent"}
     try:
         if transport is None:

@@ -17,6 +17,7 @@ import argparse
 import json
 import secrets
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -303,9 +304,14 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"No workflows matched {sorted(wanted)}.")
 
     server = None
+    export_home = None
     if args.fake:
-        export_dir = Path(args.output).parent if args.output else Path.cwd()
-        export_dir.mkdir(parents=True, exist_ok=True)
+        if args.output is not None:
+            export_dir = args.output.parent
+            export_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            export_home = tempfile.TemporaryDirectory(prefix="vibecad-workflow-export-")
+            export_dir = Path(export_home.name)
         token = args.token or secrets.token_hex(24)
         server, base_url, _state = channel.start_fake_channel(str(export_dir), token)
         client = channel.AgentClickChannel(base_url, token, timeout_seconds=args.timeout)
@@ -333,6 +339,8 @@ def main(argv: list[str] | None = None) -> int:
         if server is not None:
             server.shutdown()
             server.server_close()
+        if export_home is not None:
+            export_home.cleanup()
 
     text = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
