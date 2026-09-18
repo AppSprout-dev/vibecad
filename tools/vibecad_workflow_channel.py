@@ -62,6 +62,7 @@ def click_input_method(kind: str) -> str:
         "action": "qt_in_process_action_trigger",
         "command": "qt_in_process_action_trigger",
         "button": "qt_in_process_action_trigger",
+        "dialog": "qt_in_process_dialog_button",
     }.get(str(kind or "").strip().lower(), "")
 
 
@@ -161,6 +162,7 @@ class FakeAgentState:
         self.selected_ribbon = "Model"
         self.exported_path = ""
         self.click_count = 0
+        self.orientation_dialog = False
 
     def active_document(self) -> dict[str, Any] | None:
         if self.active_index < 0 or self.active_index >= len(self.documents):
@@ -199,11 +201,11 @@ class FakeAgentState:
             kind = "action"
         text = str(body.get("text") or "").strip()
         self.click_count += 1
-        if kind not in {"ribbon", "menu", "action"}:
+        if kind not in {"ribbon", "menu", "action", "dialog"}:
             return {
                 "ok": False,
                 "failure_code": "UI_TARGET_KIND_INVALID",
-                "error": "kind must be 'ribbon', 'menu', or 'action'.",
+                "error": "kind must be 'ribbon', 'menu', 'action', or 'dialog'.",
             }
         if not text:
             return {
@@ -254,6 +256,9 @@ class FakeAgentState:
                 }
             )
             return {"ok": True, **details}
+
+        if kind == "dialog":
+            return self._click_dialog(text, details)
 
         return self._click_action(text, details)
 
@@ -317,14 +322,9 @@ class FakeAgentState:
                 if text == "PartDesign_NewSketch"
                 else "Sketcher_NewSketch"
             )
-            document["objects"].append(
-                {
-                    "name": "Sketch",
-                    "type_id": "Sketcher::SketchObject",
-                    "label": "Sketch",
-                }
-            )
+            self.orientation_dialog = True
             details["object_name"] = command_name
+            details["click_queued"] = True
             return {"ok": True, **details}
 
         if text in {"PartDesign_Pad", "Pad"}:
@@ -359,6 +359,39 @@ class FakeAgentState:
             "failure_code": "UI_TARGET_NOT_UNIQUE",
             "error": f"Expected exactly one action named {text!r}; found 0.",
         }
+
+    def _click_dialog(self, text: str, details: dict[str, Any]) -> dict[str, Any]:
+        if text not in {"OK", "Ok", "Choose Orientation"}:
+            return {
+                "ok": False,
+                "failure_code": "UI_TARGET_NOT_UNIQUE",
+                "error": f"Expected exactly one visible dialog named {text!r}; found 0.",
+            }
+        if not self.orientation_dialog:
+            return {
+                "ok": False,
+                "failure_code": "UI_TARGET_NOT_UNIQUE",
+                "error": f"Expected exactly one visible dialog named {text!r}; found 0.",
+            }
+        document = self.active_document()
+        if document is None:
+            return {
+                "ok": False,
+                "failure_code": "UI_CLICK_NOT_APPLIED",
+                "error": f"Qt click did not activate dialog target {text!r}.",
+                **details,
+                "semantic_verified": False,
+            }
+        document["objects"].append(
+            {
+                "name": "Sketch",
+                "type_id": "Sketcher::SketchObject",
+                "label": "Sketch",
+            }
+        )
+        self.orientation_dialog = False
+        details["object_name"] = "Choose Orientation"
+        return {"ok": True, **details}
 
 
 class _FakeHandler(BaseHTTPRequestHandler):

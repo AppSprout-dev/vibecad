@@ -321,7 +321,7 @@ owner's network controls.
 | POST | `/v1/close` | optional `document`, explicit `discard_unsaved` | Close without silently discarding a modified document |
 | GET | `/v1/ui/menus` | | Live top-level menu names, indices, visibility, and screen geometry |
 | GET | `/v1/ui/ribbon` | | Live ribbon names, workbenches, indices, selection, and screen geometry |
-| POST | `/v1/ui/click` | `{"kind":"menu|ribbon|action","text":"..."}`, optional exact PID/index | Activate one semantic Qt target without moving or clicking the OS cursor |
+| POST | `/v1/ui/click` | `{"kind":"menu|ribbon|action|dialog","text":"..."}`, optional exact PID/index | Activate one semantic Qt target without moving or clicking the OS cursor |
 | POST | `/v1/run` | `{"python":"..."}` or `{"script":"..."}` plus optional `path`, `recompute` | Exec against the active doc |
 | GET | `/v1/operations/{operation_id}` | | Read the in-memory state/result of a client-identified operation without entering the document thread |
 | GET/POST | `/v1/aero` | operation payload for POST | Bounded Aero context and operations |
@@ -393,10 +393,12 @@ tracking explicitly by supplying an `operation_id` through the HTTP API.
 or object name. Action search uses the same `findChildren(QAction)`
 set the main window already exposes, not only toolbar or menu-bar
 `actions()`. Ribbon and menu kinds stay unchanged. The additive
-`action` kind calls `QAction.trigger()` in-process and still does not
-move or click the OS cursor. A successful trigger counts as applied even
-when creating a document moves Qt focus; restoration fields stay on the
-payload for evidence. Optional `expected_process_id` and
+`action` kind queues `QAction.trigger()` onto the next Qt event-loop
+turn so a modal `QDialog.exec()` cannot hold the HTTP request. The
+additive `dialog` kind presses OK on the visible Choose Orientation
+dialog (XY-plane already selected) in-process. A successful trigger
+counts as applied even when creating a document moves Qt focus;
+restoration fields stay on the payload for evidence. Optional `expected_process_id` and
 `expected_index` values make stale geometry fail closed. Ribbon clicks use an
 in-process Qt mouse event; top-level menus use a non-blocking in-process Qt
 popup. A menu popup is displayed for one bounded preview, then closed before

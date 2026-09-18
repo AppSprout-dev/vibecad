@@ -31,6 +31,8 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert "PartDesign_NewBody" in workflows
     assert "Sketcher_NewSketch" in workflows
     assert "PartDesign_Pad" in workflows
+    assert '"kind": "dialog"' in workflows
+    assert '"text": "OK"' in workflows
     assert "Std_New" in workflows
     assert "Std_Export" in workflows
     assert "pyautogui" not in channel

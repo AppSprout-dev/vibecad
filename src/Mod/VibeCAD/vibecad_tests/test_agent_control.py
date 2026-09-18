@@ -2273,6 +2273,272 @@ def test_ui_action_click_finds_qaction_children_not_on_toolbars(monkeypatch) -> 
     assert action.triggered == 1
 
 
+def test_ui_action_click_queues_trigger_so_a_modal_cannot_hold_http(
+    monkeypatch,
+) -> None:
+    class Point:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class QAction:
+        pass
+
+    class Action:
+        def __init__(self) -> None:
+            self.triggered = 0
+
+        def text(self) -> str:
+            return "New Sketch"
+
+        def objectName(self) -> str:  # noqa: N802
+            return "Sketcher_NewSketch"
+
+        def isEnabled(self) -> bool:  # noqa: N802
+            return True
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return True
+
+        def menu(self):
+            return None
+
+        def trigger(self) -> None:
+            self.triggered += 1
+            raise AssertionError("modal exec would hold the HTTP request")
+
+    action = Action()
+    scheduled: list[Any] = []
+
+    class QTimer:
+        @staticmethod
+        def singleShot(_milliseconds: int, callback) -> None:  # noqa: N802
+            scheduled.append(callback)
+
+    def find_children(kind):
+        if kind is QAction:
+            return [action]
+        return []
+
+    class MenuBar:
+        def actions(self) -> list:
+            return []
+
+    window = SimpleNamespace(
+        menuBar=lambda: MenuBar(),
+        actions=lambda: [],
+        findChildren=find_children,
+    )
+    application = SimpleNamespace(
+        focus=None,
+        active_window=window,
+        popup=None,
+    )
+    qt_core = SimpleNamespace(
+        Qt=SimpleNamespace(
+            LeftButton="left",
+            NoModifier="none",
+            OtherFocusReason="other",
+        ),
+        QTimer=QTimer,
+    )
+    qt_gui = SimpleNamespace(
+        QCursor=SimpleNamespace(pos=lambda: Point(10, 20)),
+        QAction=QAction,
+    )
+    qt_widgets = SimpleNamespace(
+        QTabBar=object,
+        QToolBar=object,
+        QApplication=SimpleNamespace(
+            processEvents=lambda: None,
+            focusWidget=lambda: application.focus,
+            activeWindow=lambda: application.active_window,
+            activePopupWidget=lambda: application.popup,
+        ),
+    )
+
+    class QTest:
+        @staticmethod
+        def mouseClick(_widget, _button, _modifiers, _point) -> None:  # noqa: N802
+            raise AssertionError("action clicks must not use QTest.mouseClick")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide",
+        SimpleNamespace(QtCore=qt_core, QtGui=qt_gui, QtWidgets=qt_widgets),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide6",
+        SimpleNamespace(QtTest=SimpleNamespace(QTest=QTest)),
+    )
+    monkeypatch.setattr(
+        control,
+        "_gui",
+        lambda: SimpleNamespace(GuiUp=True, getMainWindow=lambda: window),
+    )
+
+    payload = control.dispatch(
+        "ui_click", {"kind": "action", "text": "Sketcher_NewSketch"}
+    )
+    assert payload["ok"] is True
+    assert payload["click_queued"] is True
+    assert payload["object_name"] == "Sketcher_NewSketch"
+    assert action.triggered == 0
+    assert len(scheduled) == 1
+
+
+def test_ui_dialog_click_accepts_choose_orientation_ok(monkeypatch) -> None:
+    class Point:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class QDialog:
+        pass
+
+    class QDialogButtonBox:
+        Ok = "ok"
+
+    class QRadioButton:
+        pass
+
+    class Radio:
+        def isChecked(self) -> bool:  # noqa: N802
+            return True
+
+        def click(self) -> None:
+            raise AssertionError("XY-plane was already selected")
+
+    class Button:
+        def __init__(self) -> None:
+            self.clicked = 0
+
+        def click(self) -> None:
+            self.clicked += 1
+            dialog.visible = False
+            dialog.accepted += 1
+
+    ok_button = Button()
+    xy = Radio()
+
+    class ButtonBox:
+        def button(self, flag):
+            assert flag == QDialogButtonBox.Ok
+            return ok_button
+
+    button_box = ButtonBox()
+
+    class Dialog:
+        def __init__(self) -> None:
+            self.visible = True
+            self.accepted = 0
+
+        def windowTitle(self) -> str:  # noqa: N802
+            return "Choose Orientation"
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return self.visible
+
+        def findChild(self, kind, name=None):  # noqa: N802
+            if kind is QRadioButton and name == "XY_radioButton":
+                return xy
+            if kind is QDialogButtonBox:
+                return button_box
+            return None
+
+        def accept(self) -> None:
+            self.accepted += 1
+            self.visible = False
+
+    dialog = Dialog()
+
+    def find_children(kind):
+        if kind is QDialog:
+            return [dialog]
+        return []
+
+    class MenuBar:
+        def actions(self) -> list:
+            return []
+
+    window = SimpleNamespace(
+        menuBar=lambda: MenuBar(),
+        actions=lambda: [],
+        findChildren=find_children,
+    )
+    application = SimpleNamespace(
+        focus=None,
+        active_window=window,
+        popup=None,
+        modal=dialog,
+    )
+    qt_core = SimpleNamespace(
+        Qt=SimpleNamespace(
+            LeftButton="left",
+            NoModifier="none",
+            OtherFocusReason="other",
+        )
+    )
+    qt_gui = SimpleNamespace(QCursor=SimpleNamespace(pos=lambda: Point(10, 20)))
+    qt_widgets = SimpleNamespace(
+        QTabBar=object,
+        QToolBar=object,
+        QDialog=QDialog,
+        QDialogButtonBox=QDialogButtonBox,
+        QRadioButton=QRadioButton,
+        QApplication=SimpleNamespace(
+            processEvents=lambda: None,
+            focusWidget=lambda: application.focus,
+            activeWindow=lambda: application.active_window,
+            activePopupWidget=lambda: application.popup,
+            activeModalWidget=lambda: application.modal,
+        ),
+    )
+
+    class QTest:
+        @staticmethod
+        def mouseClick(_widget, _button, _modifiers, _point) -> None:  # noqa: N802
+            raise AssertionError("dialog clicks must not use QTest.mouseClick")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide",
+        SimpleNamespace(QtCore=qt_core, QtGui=qt_gui, QtWidgets=qt_widgets),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide6",
+        SimpleNamespace(QtTest=SimpleNamespace(QTest=QTest)),
+    )
+    monkeypatch.setattr(
+        control,
+        "_gui",
+        lambda: SimpleNamespace(GuiUp=True, getMainWindow=lambda: window),
+    )
+
+    payload = control.dispatch("ui_click", {"kind": "dialog", "text": "OK"})
+    assert payload["ok"] is True
+    assert payload["input_method"] == "qt_in_process_dialog_button"
+    assert payload["physical_cursor_control"] == "none"
+    assert payload["object_name"] == "Choose Orientation"
+    assert ok_button.clicked == 1
+    assert dialog.accepted == 1
+    assert dialog.visible is False
+
+
 def test_screenshot_captures_the_visible_vibecad_window(tmp_path, monkeypatch) -> None:
     target = tmp_path / "visible-vibecad.png"
 
@@ -3262,6 +3528,11 @@ def test_cli_maps_semantic_menu_snapshot_and_independent_ui_click() -> None:
     )
     assert cli._command_arguments(action_click)["kind"] == "action"
     assert cli._http_route(action_click.command) == ("POST", "/v1/ui/click")
+
+    dialog_click = cli.build_parser().parse_args(
+        ["ui-click", "--kind", "dialog", "--text", "OK"]
+    )
+    assert cli._command_arguments(dialog_click)["kind"] == "dialog"
 
     screenshot = cli.build_parser().parse_args(
         ["screenshot", "--path", "C:\\Evidence\\vibecad.png"]

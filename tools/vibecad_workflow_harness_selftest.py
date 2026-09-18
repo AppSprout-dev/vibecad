@@ -85,6 +85,7 @@ def main() -> int:
             '"kind": "menu"' not in workflow_source
             and "PartDesign_NewBody" in sketch_clicks
             and "Sketcher_NewSketch" in sketch_clicks
+            and "OK" in sketch_clicks
             and "PartDesign_Pad" in sketch_clicks,
             {"sketch_clicks": sketch_clicks},
         )

@@ -61,6 +61,16 @@
             "text": "Sketcher_NewSketch"
           },
           "check": {
+            "click_ok": true
+          }
+        },
+        {
+          "id": "accept_sketch_orientation",
+          "click": {
+            "kind": "dialog",
+            "text": "OK"
+          },
+          "check": {
             "tree_type_ids": [
               "PartDesign::Body",
               "Sketcher::SketchObject"
@@ -124,6 +134,16 @@
           "click": {
             "kind": "action",
             "text": "Sketcher_NewSketch"
+          },
+          "check": {
+            "click_ok": true
+          }
+        },
+        {
+          "id": "accept_sketch_orientation",
+          "click": {
+            "kind": "dialog",
+            "text": "OK"
           },
           "check": {
             "tree_type_ids": [

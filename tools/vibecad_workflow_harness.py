@@ -57,6 +57,7 @@ ALLOWED_CLICK_INPUT_METHODS = frozenset(
         "qt_in_process_mouse_click",
         "qt_in_process_menu_popup",
         "qt_in_process_action_trigger",
+        "qt_in_process_dialog_button",
     }
 )
 
