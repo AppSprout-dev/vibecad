@@ -69,6 +69,8 @@ if int(sketch.GeometryCount) == 0:
     )
 PartDesign.finalizeDesignDefinition(sketch)
 doc.recompute()
+if hasattr(doc, "hasPendingTransaction") and doc.hasPendingTransaction():
+    doc.commitTransaction()
 result = {
     "sketch": str(sketch.Name),
     "geometry_count": int(sketch.GeometryCount),
@@ -139,6 +141,8 @@ if not faces:
     )
 Gui.Selection.clearSelection()
 Gui.Selection.addSelection(sketch, "InternalFace1")
+if hasattr(doc, "hasPendingTransaction") and doc.hasPendingTransaction():
+    doc.commitTransaction()
 if hasattr(Gui, "Command") and hasattr(Gui.Command, "update"):
     Gui.Command.update()
 command_active = False

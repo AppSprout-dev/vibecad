@@ -2510,6 +2510,47 @@ def _collect_named_qt_actions(
     return matches
 
 
+def _qt_action_is_enabled(action: Any) -> bool:
+    reader = getattr(action, "isEnabled", None)
+    return not callable(reader) or bool(reader())
+
+
+def _qt_action_is_visible(action: Any) -> bool:
+    reader = getattr(action, "isVisible", None)
+    return not callable(reader) or bool(reader())
+
+
+def _pick_clickable_qt_action(
+    matches: list[tuple[int, Any]],
+) -> tuple[tuple[int, Any] | None, str]:
+    """Prefer the enabled action findChildren can see.
+
+    ``Gui.isCommandActive`` is ``Command.canInvoke()``. The click path used
+    to require exactly one name match and then abort if that copy was hidden.
+    The ribbon keeps the command ``QAction`` on a hidden standard toolbar and
+    may also keep a disabled placeholder, so that unique/first copy is not
+    the enabled Model-tab action.
+    """
+
+    if not matches:
+        return None, "none"
+    enabled_visible = [
+        item
+        for item in matches
+        if _qt_action_is_enabled(item[1]) and _qt_action_is_visible(item[1])
+    ]
+    if len(enabled_visible) == 1:
+        return enabled_visible[0], "enabled_visible"
+    if len(enabled_visible) > 1:
+        return None, "not_unique"
+    enabled = [item for item in matches if _qt_action_is_enabled(item[1])]
+    if len(enabled) == 1:
+        return enabled[0], "enabled"
+    if len(matches) == 1:
+        return matches[0], "disabled"
+    return None, "not_unique"
+
+
 def _queue_qt_callback(QtCore: Any, callback: Any) -> bool:
     """Queue ``callback`` on the next Qt event-loop turn.
 
@@ -2996,7 +3037,8 @@ def ui_click_target(
             matches = _collect_named_qt_actions(
                 main_window, QtWidgets, target_text, QtGui
             )
-            if len(matches) != 1:
+            picked, pick_reason = _pick_clickable_qt_action(matches)
+            if picked is None:
                 return failure(
                     "UI_TARGET_NOT_UNIQUE",
                     (
@@ -3005,22 +3047,14 @@ def ui_click_target(
                     ),
                     stage="precondition",
                 )
-            target_index, action = matches[0]
+            target_index, action = picked
             if required_index is not None and required_index != target_index:
                 return failure(
                     "UI_TARGET_INDEX_MISMATCH",
                     f"Action {target_text!r} is index {target_index}, not {required_index}.",
                     stage="precondition",
                 )
-            enabled_reader = getattr(action, "isEnabled", None)
-            visible_reader = getattr(action, "isVisible", None)
-            if (
-                callable(enabled_reader)
-                and not bool(enabled_reader())
-            ) or (
-                callable(visible_reader)
-                and not bool(visible_reader())
-            ):
+            if pick_reason == "disabled" or not _qt_action_is_enabled(action):
                 return failure(
                     "UI_TARGET_DISABLED",
                     f"Action {target_text!r} is disabled or hidden.",
@@ -3060,6 +3094,8 @@ def ui_click_target(
                 "target_text": target_text,
                 "target_index": target_index,
                 "object_name": str(name_reader() if callable(name_reader) else ""),
+                "action_match_count": len(matches),
+                "action_pick": pick_reason,
                 "active_action_restored": True,
                 "click_queued": queued,
                 **state,

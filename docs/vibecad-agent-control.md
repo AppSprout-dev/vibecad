@@ -394,7 +394,12 @@ or object name. Action search uses the same `findChildren(QAction)`
 set the main window already exposes, not only toolbar or menu-bar
 `actions()`. Ribbon and menu kinds stay unchanged. The additive
 `action` kind queues `QAction.trigger()` onto the next Qt event-loop
-turn so a modal `QDialog.exec()` cannot hold the HTTP request. The
+turn so a modal `QDialog.exec()` cannot hold the HTTP request.
+`findChildren(QAction)` can see a hidden or disabled command copy
+before the enabled Model-tab action. The click path now prefers the
+enabled visible match, or the single enabled command action when the
+standard toolbar copy is hidden. `Gui.isCommandActive` is
+`Command.canInvoke()` and is not a `QAction.isVisible()` check. The
 additive `dialog` kind presses OK on the visible Choose Orientation
 dialog (XY-plane already selected) in-process. That opens the sketch
 editor: domain tabs including Model are disabled, and

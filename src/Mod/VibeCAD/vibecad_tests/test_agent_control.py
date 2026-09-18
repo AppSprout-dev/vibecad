@@ -2273,6 +2273,137 @@ def test_ui_action_click_finds_qaction_children_not_on_toolbars(monkeypatch) -> 
     assert action.triggered == 1
 
 
+def test_pick_clickable_qt_action_skips_the_hidden_disabled_duplicate() -> None:
+    hidden = SimpleNamespace(isEnabled=lambda: False, isVisible=lambda: False)
+    visible = SimpleNamespace(isEnabled=lambda: True, isVisible=lambda: True)
+    picked, reason = control._pick_clickable_qt_action([(0, hidden), (1, visible)])
+    assert reason == "enabled_visible"
+    assert picked == (1, visible)
+
+
+def test_pick_clickable_qt_action_uses_the_enabled_hidden_command_action() -> None:
+    hidden = SimpleNamespace(isEnabled=lambda: True, isVisible=lambda: False)
+    picked, reason = control._pick_clickable_qt_action([(0, hidden)])
+    assert reason == "enabled"
+    assert picked == (0, hidden)
+
+
+def test_ui_action_click_triggers_enabled_copy_when_a_hidden_duplicate_exists(
+    monkeypatch,
+) -> None:
+    class Point:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class QAction:
+        pass
+
+    class Action:
+        def __init__(self, enabled: bool, visible: bool) -> None:
+            self.triggered = 0
+            self._enabled = enabled
+            self._visible = visible
+
+        def text(self) -> str:
+            return "Extrude"
+
+        def objectName(self) -> str:  # noqa: N802
+            return "PartDesign_DesignExtrude"
+
+        def isEnabled(self) -> bool:  # noqa: N802
+            return self._enabled
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return self._visible
+
+        def menu(self):
+            return None
+
+        def trigger(self) -> None:
+            self.triggered += 1
+
+    hidden = Action(enabled=False, visible=False)
+    visible = Action(enabled=True, visible=True)
+
+    def find_children(kind):
+        if kind is QAction:
+            return [hidden, visible]
+        return []
+
+    class MenuBar:
+        def actions(self) -> list:
+            return []
+
+    window = SimpleNamespace(
+        menuBar=lambda: MenuBar(),
+        actions=lambda: [],
+        findChildren=find_children,
+    )
+    application = SimpleNamespace(
+        focus=None,
+        active_window=window,
+        popup=None,
+    )
+    qt_core = SimpleNamespace(
+        Qt=SimpleNamespace(
+            LeftButton="left",
+            NoModifier="none",
+            OtherFocusReason="other",
+        )
+    )
+    qt_gui = SimpleNamespace(
+        QCursor=SimpleNamespace(pos=lambda: Point(10, 20)),
+        QAction=QAction,
+    )
+    qt_widgets = SimpleNamespace(
+        QTabBar=object,
+        QToolBar=object,
+        QApplication=SimpleNamespace(
+            processEvents=lambda: None,
+            focusWidget=lambda: application.focus,
+            activeWindow=lambda: application.active_window,
+            activePopupWidget=lambda: application.popup,
+        ),
+    )
+
+    class QTest:
+        @staticmethod
+        def mouseClick(_widget, _button, _modifiers, _point) -> None:  # noqa: N802
+            raise AssertionError("action clicks must not use QTest.mouseClick")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide",
+        SimpleNamespace(QtCore=qt_core, QtGui=qt_gui, QtWidgets=qt_widgets),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide6",
+        SimpleNamespace(QtTest=SimpleNamespace(QTest=QTest)),
+    )
+    monkeypatch.setattr(
+        control,
+        "_gui",
+        lambda: SimpleNamespace(GuiUp=True, getMainWindow=lambda: window),
+    )
+
+    payload = control.dispatch(
+        "ui_click", {"kind": "action", "text": "PartDesign_DesignExtrude"}
+    )
+    assert payload["ok"] is True
+    assert payload["action_pick"] == "enabled_visible"
+    assert payload["action_match_count"] == 2
+    assert hidden.triggered == 0
+    assert visible.triggered == 1
+
+
 def test_ui_action_click_queues_trigger_so_a_modal_cannot_hold_http(
     monkeypatch,
 ) -> None:
