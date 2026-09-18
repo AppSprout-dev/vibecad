@@ -163,6 +163,7 @@ class FakeAgentState:
         self.exported_path = ""
         self.click_count = 0
         self.orientation_dialog = False
+        self.sketch_edit = False
 
     def active_document(self) -> dict[str, Any] | None:
         if self.active_index < 0 or self.active_index >= len(self.documents):
@@ -236,6 +237,14 @@ class FakeAgentState:
                     "ok": False,
                     "failure_code": "UI_TARGET_NOT_UNIQUE",
                     "error": f"Expected exactly one ribbon tab named {text!r}; found 0.",
+                }
+            if text == "Model" and self.sketch_edit:
+                return {
+                    "ok": False,
+                    "failure_code": "UI_TARGET_DISABLED",
+                    "error": f"Ribbon tab {text!r} is disabled.",
+                    **details,
+                    "semantic_verified": False,
                 }
             self.selected_ribbon = text
             details["selected_after"] = text
@@ -327,23 +336,55 @@ class FakeAgentState:
             details["click_queued"] = True
             return {"ok": True, **details}
 
+        if text in {"Sketcher_LeaveSketch", "Leave Sketch"}:
+            if not self.sketch_edit:
+                return {
+                    "ok": False,
+                    "failure_code": "UI_TARGET_NOT_UNIQUE",
+                    "error": f"Expected exactly one action named {text!r}; found 0.",
+                }
+            self.sketch_edit = False
+            self.selected_ribbon = "Model"
+            details["object_name"] = "Sketcher_LeaveSketch"
+            details["click_queued"] = True
+            return {"ok": True, **details}
+
         if text in {"PartDesign_Pad", "Pad"}:
+            # Command.cpp still registers PartDesign_Pad, but createAction()
+            # runs only when a command is addTo()'d. The Model ribbon and
+            # sketch.edit Finish group never surface it, so findChildren
+            # reports found 0 before and after leaving the sketch.
+            return {
+                "ok": False,
+                "failure_code": "UI_TARGET_NOT_UNIQUE",
+                "error": f"Expected exactly one action named {text!r}; found 0.",
+            }
+
+        if text in {"PartDesign_DesignExtrude", "Extrude"}:
+            if self.sketch_edit:
+                return {
+                    "ok": False,
+                    "failure_code": "UI_TARGET_DISABLED",
+                    "error": f"Action {text!r} is disabled or hidden.",
+                    **details,
+                    "semantic_verified": False,
+                }
             if "Sketcher::SketchObject" not in type_ids:
                 return {
                     "ok": False,
                     "failure_code": "UI_CLICK_NOT_APPLIED",
-                    "error": "Pad has no sketch to consume.",
+                    "error": "Extrude has no sketch to consume.",
                     **details,
                     "semantic_verified": False,
                 }
             document["objects"].append(
                 {
-                    "name": "Pad",
-                    "type_id": "PartDesign::Pad",
-                    "label": "Pad",
+                    "name": "Extrude",
+                    "type_id": "PartDesign::DesignExtrude",
+                    "label": "Extrude",
                 }
             )
-            details["object_name"] = "PartDesign_Pad"
+            details["object_name"] = "PartDesign_DesignExtrude"
             return {"ok": True, **details}
 
         if text in {"Std_Export", "Export"}:
@@ -390,6 +431,8 @@ class FakeAgentState:
             }
         )
         self.orientation_dialog = False
+        self.sketch_edit = True
+        self.selected_ribbon = "Sketch"
         details["object_name"] = "Choose Orientation"
         return {"ok": True, **details}
 
@@ -458,7 +501,11 @@ class _FakeHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "selected_text": state.selected_ribbon,
                     "tabs": [
-                        {"text": "Model", "index": 0, "enabled": True},
+                        {
+                            "text": "Model",
+                            "index": 0,
+                            "enabled": not state.sketch_edit,
+                        },
                         {"text": "Sketch", "index": 1, "enabled": True},
                     ],
                 },

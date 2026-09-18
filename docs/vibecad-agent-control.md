@@ -396,7 +396,14 @@ set the main window already exposes, not only toolbar or menu-bar
 `action` kind queues `QAction.trigger()` onto the next Qt event-loop
 turn so a modal `QDialog.exec()` cannot hold the HTTP request. The
 additive `dialog` kind presses OK on the visible Choose Orientation
-dialog (XY-plane already selected) in-process. A successful trigger
+dialog (XY-plane already selected) in-process. That opens the sketch
+editor: domain tabs including Model are disabled, and
+`PartDesign_Pad` is not a `findChildren(QAction)` match because the
+command is never `addTo()`'d on the Model or sketch.edit ribbon. The
+Finish-group command the window does expose is `Sketcher_LeaveSketch`.
+After leave, the rebuilt Model ribbon surfaces
+`PartDesign_DesignExtrude`, which creates `PartDesign::DesignExtrude`.
+A successful trigger
 counts as applied even when creating a document moves Qt focus;
 restoration fields stay on the payload for evidence. Optional `expected_process_id` and
 `expected_index` values make stale geometry fail closed. Ribbon clicks use an

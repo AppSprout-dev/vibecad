@@ -78,16 +78,30 @@
           }
         },
         {
-          "id": "click_pad",
+          "id": "leave_sketch",
           "click": {
             "kind": "action",
-            "text": "PartDesign_Pad"
+            "text": "Sketcher_LeaveSketch"
+          },
+          "check": {
+            "click_ok": true,
+            "tree_type_ids": [
+              "PartDesign::Body",
+              "Sketcher::SketchObject"
+            ]
+          }
+        },
+        {
+          "id": "click_extrude",
+          "click": {
+            "kind": "action",
+            "text": "PartDesign_DesignExtrude"
           },
           "check": {
             "tree_type_ids": [
               "PartDesign::Body",
               "Sketcher::SketchObject",
-              "PartDesign::Pad"
+              "PartDesign::DesignExtrude"
             ]
           }
         }
@@ -152,14 +166,27 @@
           }
         },
         {
-          "id": "seed_pad",
+          "id": "leave_sketch",
           "click": {
             "kind": "action",
-            "text": "PartDesign_Pad"
+            "text": "Sketcher_LeaveSketch"
+          },
+          "check": {
+            "click_ok": true,
+            "tree_type_ids": [
+              "Sketcher::SketchObject"
+            ]
+          }
+        },
+        {
+          "id": "seed_extrude",
+          "click": {
+            "kind": "action",
+            "text": "PartDesign_DesignExtrude"
           },
           "check": {
             "tree_type_ids": [
-              "PartDesign::Pad"
+              "PartDesign::DesignExtrude"
             ]
           }
         },

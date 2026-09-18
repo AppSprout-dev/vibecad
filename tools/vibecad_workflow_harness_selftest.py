@@ -86,7 +86,9 @@ def main() -> int:
             and "PartDesign_NewBody" in sketch_clicks
             and "Sketcher_NewSketch" in sketch_clicks
             and "OK" in sketch_clicks
-            and "PartDesign_Pad" in sketch_clicks,
+            and "Sketcher_LeaveSketch" in sketch_clicks
+            and "PartDesign_DesignExtrude" in sketch_clicks
+            and "PartDesign_Pad" not in sketch_clicks,
             {"sketch_clicks": sketch_clicks},
         )
     )
@@ -221,6 +223,57 @@ def main() -> int:
             and first_judge.get("called") is True
             and first_judge.get("counts_as_pass") is True,
             {"judge": first_judge},
+        )
+    )
+
+    sketch_workflow = next(
+        item for item in report["workflows"] if item["id"] == "sketch_then_pad"
+    )
+    sketch_step_ids = [str(step.get("id") or "") for step in sketch_workflow["steps"]]
+    leave_index = sketch_step_ids.index("leave_sketch")
+    extrude_index = sketch_step_ids.index("click_extrude")
+    pad_while_editing = None
+    model_while_editing = None
+    with tempfile.TemporaryDirectory(prefix="vibecad-workflow-harness-") as temp:
+        token = secrets.token_hex(24)
+        server, base_url, _state = channel.start_fake_channel(temp, token)
+        try:
+            client = channel.AgentClickChannel(base_url, token, timeout_seconds=5)
+            client.click("action", "Std_New")
+            client.click("ribbon", "Model")
+            client.click("action", "PartDesign_NewBody")
+            client.click("action", "Sketcher_NewSketch")
+            client.click("dialog", "OK")
+            pad_while_editing = client.click("action", "PartDesign_Pad")
+            model_while_editing = client.click("ribbon", "Model")
+            leave = client.click("action", "Sketcher_LeaveSketch")
+            extrude = client.click("action", "PartDesign_DesignExtrude")
+            tree = client.inspect_tree()
+        finally:
+            server.shutdown()
+            server.server_close()
+    type_ids = {
+        str(item.get("type_id") or "")
+        for item in ((tree.get("result") or {}).get("objects") or [])
+        if isinstance(item, dict)
+    }
+    scenarios.append(
+        scenario(
+            "leave_sketch_before_model_extrude",
+            leave_index < extrude_index
+            and pad_while_editing.get("failure_code") == "UI_TARGET_NOT_UNIQUE"
+            and "found 0" in str(pad_while_editing.get("error") or "")
+            and model_while_editing.get("failure_code") == "UI_TARGET_DISABLED"
+            and leave.get("ok") is True
+            and leave.get("object_name") == "Sketcher_LeaveSketch"
+            and extrude.get("ok") is True
+            and "PartDesign::DesignExtrude" in type_ids,
+            {
+                "sketch_step_ids": sketch_step_ids,
+                "pad_while_editing": pad_while_editing.get("failure_code"),
+                "model_while_editing": model_while_editing.get("failure_code"),
+                "type_ids": sorted(type_ids),
+            },
         )
     )
 
