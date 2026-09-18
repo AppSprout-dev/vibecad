@@ -43,9 +43,13 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert "Import.export" in channel
     assert "addGeometry" in channel
     assert "/v1/run" in channel
-    assert "_pick_clickable_qt_action" in (
+    agent_control = (
         REPOSITORY_ROOT / "src" / "Mod" / "VibeCAD" / "VibeCADAgentControl.py"
     ).read_text(encoding="utf-8")
+    assert "_pick_clickable_qt_action" in agent_control
+    assert "_command_is_active" in agent_control
+    assert "_named_command_runner" in agent_control
+    assert "command_active" in agent_control
     assert '"kind": "dialog"' in workflows
     assert '"text": "OK"' in workflows
     assert "Std_New" in workflows

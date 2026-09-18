@@ -696,7 +696,11 @@ class FakeAgentState:
                 return {
                     "ok": False,
                     "failure_code": "UI_TARGET_DISABLED",
+                    "failure_stage": "precondition",
                     "error": f"Action {text!r} is disabled or hidden.",
+                    "action_pick": "disabled",
+                    "action_match_count": 1,
+                    "command_active": False,
                     **details,
                     "semantic_verified": False,
                 }

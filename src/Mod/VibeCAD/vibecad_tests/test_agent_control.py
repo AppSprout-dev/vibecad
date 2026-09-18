@@ -2404,6 +2404,264 @@ def test_ui_action_click_triggers_enabled_copy_when_a_hidden_duplicate_exists(
     assert visible.triggered == 1
 
 
+def test_ui_action_click_runs_command_when_every_qaction_is_disabled(
+    monkeypatch,
+) -> None:
+    class Point:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class QAction:
+        pass
+
+    class Action:
+        def __init__(self) -> None:
+            self.triggered = 0
+
+        def text(self) -> str:
+            return "Extrude"
+
+        def objectName(self) -> str:  # noqa: N802
+            return "PartDesign_DesignExtrude"
+
+        def isEnabled(self) -> bool:  # noqa: N802
+            return False
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return False
+
+        def menu(self):
+            return None
+
+        def trigger(self) -> None:
+            self.triggered += 1
+
+    class Command:
+        def __init__(self) -> None:
+            self.ran = 0
+
+        def run(self) -> None:
+            self.ran += 1
+
+    command = Command()
+    scheduled: list[Any] = []
+
+    class QTimer:
+        @staticmethod
+        def singleShot(_milliseconds: int, callback) -> None:  # noqa: N802
+            scheduled.append(callback)
+
+    action = Action()
+
+    def find_children(kind):
+        if kind is QAction:
+            return [action]
+        return []
+
+    class MenuBar:
+        def actions(self) -> list:
+            return []
+
+    window = SimpleNamespace(
+        menuBar=lambda: MenuBar(),
+        actions=lambda: [],
+        findChildren=find_children,
+    )
+    application = SimpleNamespace(
+        focus=None,
+        active_window=window,
+        popup=None,
+    )
+    qt_core = SimpleNamespace(
+        Qt=SimpleNamespace(
+            LeftButton="left",
+            NoModifier="none",
+            OtherFocusReason="other",
+        ),
+        QTimer=QTimer,
+    )
+    qt_gui = SimpleNamespace(
+        QCursor=SimpleNamespace(pos=lambda: Point(10, 20)),
+        QAction=QAction,
+    )
+    qt_widgets = SimpleNamespace(
+        QTabBar=object,
+        QToolBar=object,
+        QApplication=SimpleNamespace(
+            processEvents=lambda: None,
+            focusWidget=lambda: application.focus,
+            activeWindow=lambda: application.active_window,
+            activePopupWidget=lambda: application.popup,
+        ),
+    )
+
+    class QTest:
+        @staticmethod
+        def mouseClick(_widget, _button, _modifiers, _point) -> None:  # noqa: N802
+            raise AssertionError("action clicks must not use QTest.mouseClick")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide",
+        SimpleNamespace(QtCore=qt_core, QtGui=qt_gui, QtWidgets=qt_widgets),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide6",
+        SimpleNamespace(QtTest=SimpleNamespace(QTest=QTest)),
+    )
+    monkeypatch.setattr(
+        control,
+        "_gui",
+        lambda: SimpleNamespace(
+            GuiUp=True,
+            getMainWindow=lambda: window,
+            isCommandActive=lambda name: name == "PartDesign_DesignExtrude",
+            Command=SimpleNamespace(
+                update=lambda: None,
+                get=lambda name: command if name == "PartDesign_DesignExtrude" else None,
+            ),
+        ),
+    )
+
+    payload = control.dispatch(
+        "ui_click", {"kind": "action", "text": "PartDesign_DesignExtrude"}
+    )
+    assert payload["ok"] is True
+    assert payload["action_pick"] == "command_active"
+    assert payload["command_active"] is True
+    assert payload["action_match_count"] == 1
+    assert payload["click_queued"] is True
+    assert action.triggered == 0
+    assert command.ran == 0
+    assert len(scheduled) == 1
+    scheduled[0]()
+    assert command.ran == 1
+    assert action.triggered == 0
+
+
+def test_ui_action_click_disabled_payload_includes_action_pick_when_inactive(
+    monkeypatch,
+) -> None:
+    class Point:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class QAction:
+        pass
+
+    class Action:
+        def text(self) -> str:
+            return "Extrude"
+
+        def objectName(self) -> str:  # noqa: N802
+            return "PartDesign_DesignExtrude"
+
+        def isEnabled(self) -> bool:  # noqa: N802
+            return False
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return False
+
+        def menu(self):
+            return None
+
+        def trigger(self) -> None:
+            raise AssertionError("disabled QAction.trigger must not run")
+
+    action = Action()
+
+    def find_children(kind):
+        if kind is QAction:
+            return [action]
+        return []
+
+    class MenuBar:
+        def actions(self) -> list:
+            return []
+
+    window = SimpleNamespace(
+        menuBar=lambda: MenuBar(),
+        actions=lambda: [],
+        findChildren=find_children,
+    )
+    application = SimpleNamespace(
+        focus=None,
+        active_window=window,
+        popup=None,
+    )
+    qt_core = SimpleNamespace(
+        Qt=SimpleNamespace(
+            LeftButton="left",
+            NoModifier="none",
+            OtherFocusReason="other",
+        )
+    )
+    qt_gui = SimpleNamespace(
+        QCursor=SimpleNamespace(pos=lambda: Point(10, 20)),
+        QAction=QAction,
+    )
+    qt_widgets = SimpleNamespace(
+        QTabBar=object,
+        QToolBar=object,
+        QApplication=SimpleNamespace(
+            processEvents=lambda: None,
+            focusWidget=lambda: application.focus,
+            activeWindow=lambda: application.active_window,
+            activePopupWidget=lambda: application.popup,
+        ),
+    )
+
+    class QTest:
+        @staticmethod
+        def mouseClick(_widget, _button, _modifiers, _point) -> None:  # noqa: N802
+            raise AssertionError("action clicks must not use QTest.mouseClick")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide",
+        SimpleNamespace(QtCore=qt_core, QtGui=qt_gui, QtWidgets=qt_widgets),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide6",
+        SimpleNamespace(QtTest=SimpleNamespace(QTest=QTest)),
+    )
+    monkeypatch.setattr(
+        control,
+        "_gui",
+        lambda: SimpleNamespace(
+            GuiUp=True,
+            getMainWindow=lambda: window,
+            isCommandActive=lambda _name: False,
+            Command=SimpleNamespace(update=lambda: None, get=lambda _name: None),
+        ),
+    )
+
+    payload = control.dispatch(
+        "ui_click", {"kind": "action", "text": "PartDesign_DesignExtrude"}
+    )
+    assert payload["ok"] is False
+    assert payload["failure_code"] == "UI_TARGET_DISABLED"
+    assert payload["action_pick"] == "disabled"
+    assert payload["action_match_count"] == 1
+    assert payload["command_active"] is False
+
+
 def test_ui_action_click_queues_trigger_so_a_modal_cannot_hold_http(
     monkeypatch,
 ) -> None:

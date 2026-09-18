@@ -2551,6 +2551,69 @@ def _pick_clickable_qt_action(
     return None, "not_unique"
 
 
+def _qt_action_object_name(action: Any) -> str:
+    reader = getattr(action, "objectName", None)
+    return str(reader() if callable(reader) else "")
+
+
+def _named_command_for_action_click(
+    target_text: str,
+    matches: list[tuple[int, Any]],
+    action: Any | None,
+) -> str:
+    if action is not None:
+        name = _qt_action_object_name(action)
+        if name:
+            return name
+    for _index, candidate in matches:
+        name = _qt_action_object_name(candidate)
+        if name:
+            return name
+    return target_text
+
+
+def _command_is_active(gui: Any, name: str) -> bool:
+    """``Gui.isCommandActive`` is ``Command.canInvoke()``."""
+
+    checker = getattr(gui, "isCommandActive", None)
+    if callable(checker):
+        try:
+            return bool(checker(name))
+        except Exception:
+            return False
+    command_mod = getattr(gui, "Command", None)
+    getter = getattr(command_mod, "get", None)
+    if not callable(getter):
+        return False
+    try:
+        command = getter(name)
+    except Exception:
+        return False
+    if command is None:
+        return False
+    is_active = getattr(command, "isActive", None)
+    return callable(is_active) and bool(is_active())
+
+
+def _named_command_runner(gui: Any, name: str) -> Any | None:
+    command_mod = getattr(gui, "Command", None)
+    getter = getattr(command_mod, "get", None)
+    if not callable(getter):
+        return None
+    try:
+        command = getter(name)
+    except Exception:
+        return None
+    runner = getattr(command, "run", None)
+    return runner if callable(runner) else None
+
+
+def _all_named_qt_actions_disabled(matches: list[tuple[int, Any]]) -> bool:
+    return bool(matches) and all(
+        not _qt_action_is_enabled(item[1]) for item in matches
+    )
+
+
 def _queue_qt_callback(QtCore: Any, callback: Any) -> bool:
     """Queue ``callback`` on the next Qt event-loop turn.
 
@@ -3034,11 +3097,61 @@ def ui_click_target(
                 **state,
             }
         elif target_kind == "action":
+            updater = getattr(getattr(gui, "Command", None), "update", None)
+            if callable(updater):
+                try:
+                    updater()
+                except Exception:
+                    pass
             matches = _collect_named_qt_actions(
                 main_window, QtWidgets, target_text, QtGui
             )
             picked, pick_reason = _pick_clickable_qt_action(matches)
-            if picked is None:
+            action = None
+            target_index = 0
+            if picked is not None:
+                target_index, action = picked
+            command_name = _named_command_for_action_click(
+                target_text, matches, action
+            )
+            command_active = _command_is_active(gui, command_name)
+            invoke = None
+            invoke_pick = pick_reason
+            object_name = (
+                _qt_action_object_name(action) if action is not None else command_name
+            )
+            disabled_failure = {
+                "action_pick": pick_reason,
+                "action_match_count": len(matches),
+                "command_active": command_active,
+            }
+            if picked is not None:
+                if required_index is not None and required_index != target_index:
+                    return failure(
+                        "UI_TARGET_INDEX_MISMATCH",
+                        (
+                            f"Action {target_text!r} is index {target_index}, "
+                            f"not {required_index}."
+                        ),
+                        stage="precondition",
+                        **disabled_failure,
+                    )
+                if pick_reason != "disabled" and _qt_action_is_enabled(action):
+                    invoke = getattr(action, "trigger", None)
+                elif command_active:
+                    invoke = _named_command_runner(gui, command_name)
+                    invoke_pick = "command_active"
+                else:
+                    return failure(
+                        "UI_TARGET_DISABLED",
+                        f"Action {target_text!r} is disabled or hidden.",
+                        stage="precondition",
+                        **disabled_failure,
+                    )
+            elif command_active and _all_named_qt_actions_disabled(matches):
+                invoke = _named_command_runner(gui, command_name)
+                invoke_pick = "command_active"
+            else:
                 return failure(
                     "UI_TARGET_NOT_UNIQUE",
                     (
@@ -3046,34 +3159,26 @@ def ui_click_target(
                         f"found {len(matches)}."
                     ),
                     stage="precondition",
+                    **disabled_failure,
                 )
-            target_index, action = picked
-            if required_index is not None and required_index != target_index:
-                return failure(
-                    "UI_TARGET_INDEX_MISMATCH",
-                    f"Action {target_text!r} is index {target_index}, not {required_index}.",
-                    stage="precondition",
-                )
-            if pick_reason == "disabled" or not _qt_action_is_enabled(action):
-                return failure(
-                    "UI_TARGET_DISABLED",
-                    f"Action {target_text!r} is disabled or hidden.",
-                    stage="precondition",
-                )
-            trigger = getattr(action, "trigger", None)
-            if not callable(trigger):
+            if not callable(invoke):
                 return failure(
                     "UI_TARGET_NOT_TRIGGERABLE",
                     f"Action {target_text!r} cannot be triggered in-process.",
                     stage="precondition",
+                    action_pick=invoke_pick,
+                    action_match_count=len(matches),
+                    command_active=command_active,
                 )
             # Sketcher_NewSketch calls QDialog.exec() on this GUI thread.
             # The HTTP worker waits for this dispatch, so a modal would
             # hold /v1/ui/click and /v1/status until OK. Queue the
             # trigger onto the next event-loop turn and return now.
-            queued = _queue_qt_callback(QtCore, trigger)
+            # Disabled QAction.trigger() does not fire, so a canInvoke()
+            # match uses Gui.Command.get(name).run() instead.
+            queued = _queue_qt_callback(QtCore, invoke)
             if not queued:
-                trigger()
+                invoke()
                 process_events()
             state = (
                 {
@@ -3088,14 +3193,14 @@ def ui_click_target(
             # Creating a document moves Qt focus. Restoration is
             # reported but does not define whether the click landed.
             verified = True
-            name_reader = getattr(action, "objectName", None)
             details = {
                 "target_kind": target_kind,
                 "target_text": target_text,
                 "target_index": target_index,
-                "object_name": str(name_reader() if callable(name_reader) else ""),
+                "object_name": object_name,
                 "action_match_count": len(matches),
-                "action_pick": pick_reason,
+                "action_pick": invoke_pick,
+                "command_active": command_active,
                 "active_action_restored": True,
                 "click_queued": queued,
                 **state,

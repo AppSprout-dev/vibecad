@@ -398,8 +398,12 @@ turn so a modal `QDialog.exec()` cannot hold the HTTP request.
 `findChildren(QAction)` can see a hidden or disabled command copy
 before the enabled Model-tab action. The click path now prefers the
 enabled visible match, or the single enabled command action when the
-standard toolbar copy is hidden. `Gui.isCommandActive` is
-`Command.canInvoke()` and is not a `QAction.isVisible()` check. The
+standard toolbar copy is hidden. When every matching `QAction` is
+disabled, `QAction.trigger()` does not fire; the click then follows
+`Gui.isCommandActive` (`Command.canInvoke()`) and queues
+`Gui.Command.get(name).run()`. `UI_TARGET_DISABLED` is returned only
+when that command is also not invokable, and the payload then includes
+`action_pick`, `action_match_count`, and `command_active`. The
 additive `dialog` kind presses OK on the visible Choose Orientation
 dialog (XY-plane already selected) in-process. That opens the sketch
 editor: domain tabs including Model are disabled, and
