@@ -30,10 +30,12 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert '"kind": "menu"' not in workflows
     assert "PartDesign_NewBody" in workflows
     assert "Sketcher_NewSketch" in workflows
-    assert "Sketcher_LeaveSketch" in workflows
+    assert "leave_active_sketch" in workflows
+    assert "leaveActiveSketch" in channel
     assert "PartDesign_DesignExtrude" in workflows
     assert "place_closed_circle" in workflows
     assert "export_step" in workflows
+    assert workflows.count("Std_New") == 1
     assert "InternalFace1" in channel
     assert "Document Recovery" in channel
     assert "Start Recovery" in channel

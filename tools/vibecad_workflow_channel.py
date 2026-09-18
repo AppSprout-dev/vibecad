@@ -62,6 +62,8 @@ sketch = next(
 )
 if sketch is None:
     raise RuntimeError("No Sketcher::SketchObject")
+if Gui.editDocument() is not None:
+    raise RuntimeError("Sketch is still in edit mode")
 if int(sketch.GeometryCount) == 0:
     sketch.addGeometry(
         Part.Circle(App.Vector(0, 0, 0), App.Vector(0, 0, 1), 10),
@@ -107,6 +109,49 @@ for dialog in list(main.findChildren(QtWidgets.QDialog) or []):
     cancel.click()
     dismissed.append("Cancel")
 result = {"dismissed": dismissed, "button": "Cancel"}
+"""
+
+# SketcherGui.leaveActiveSketch is the exact-edit finish
+# (SketchEditControl.cpp). CmdSketcherLeaveSketch::activated() passes
+# getActiveGuiDocument(), which is Application::activeDocument().
+# requireExactEditState throws "The exact Sketch document is no longer
+# active in edit mode" when activeDocument() != editDocument().
+# A queued LeaveSketch click plus Std_New per workflow creates that
+# split. This recipe uses the edit document, not the active tab.
+LEAVE_ACTIVE_SKETCH_PYTHON = """
+# vibecad.workflow-harness:leave_active_sketch
+import SketcherGui
+
+edit = Gui.editDocument()
+if edit is None:
+    result = {
+        "edit_mode": "closed",
+        "left": False,
+        "document": None,
+        "sketch": None,
+    }
+else:
+    app_doc = edit.Document
+    view = edit.getInEdit()
+    sketch = getattr(view, "Object", None) if view is not None else None
+    if sketch is None or not sketch.isDerivedFrom("Sketcher::SketchObject"):
+        raise RuntimeError(
+            "The exact requested Sketch is no longer the active edit target."
+        )
+    native = SketcherGui.leaveActiveSketch(
+        str(app_doc.Name),
+        str(app_doc.Uid),
+        str(sketch.Name),
+    )
+    result = {
+        "edit_mode": native.get("edit_mode"),
+        "left": True,
+        "document": str(app_doc.Name),
+        "sketch": str(sketch.Name),
+        "accepted_task_dialog": native.get("accepted_task_dialog"),
+    }
+if Gui.editDocument() is not None:
+    raise RuntimeError("The exact Sketch edit session did not close")
 """
 
 # designProfileOperationActive() requires a reusable sketch or InternalFace*
@@ -190,6 +235,7 @@ def workflow_run_python(recipe_id: str, *, export_path: str = "") -> str:
     recipes = {
         "place_closed_circle": PLACE_CLOSED_CIRCLE_PYTHON,
         "select_sketch": SELECT_SKETCH_PYTHON,
+        "leave_active_sketch": LEAVE_ACTIVE_SKETCH_PYTHON,
         "dismiss_document_recovery": DISMISS_DOCUMENT_RECOVERY_PYTHON,
         "export_step": EXPORT_STEP_PYTHON.replace(
             "__EXPORT_PATH__", json.dumps(str(export_path))
@@ -399,6 +445,12 @@ class FakeAgentState:
                     "failure_code": "SCRIPT_FAILED",
                     "error": "No Sketcher::SketchObject",
                 }
+            if self.sketch_edit:
+                return {
+                    "ok": False,
+                    "failure_code": "SCRIPT_FAILED",
+                    "error": "Sketch is still in edit mode",
+                }
             sketch["closed_profile"] = True
             sketch["geometry_count"] = max(int(sketch.get("geometry_count") or 0), 1)
             # Adding geometry resolves a leftover tree selection to an edge.
@@ -409,6 +461,38 @@ class FakeAgentState:
                 "result": {
                     "sketch": sketch["name"],
                     "geometry_count": sketch["geometry_count"],
+                },
+            }
+        if "vibecad.workflow-harness:leave_active_sketch" in source:
+            if not self.sketch_edit:
+                return {
+                    "ok": True,
+                    "result": {
+                        "edit_mode": "closed",
+                        "left": False,
+                        "document": None,
+                        "sketch": None,
+                    },
+                }
+            document = self.active_document()
+            sketch = next(
+                (
+                    obj
+                    for obj in (document or {}).get("objects") or []
+                    if obj["type_id"] == "Sketcher::SketchObject"
+                ),
+                None,
+            )
+            self.sketch_edit = False
+            self.selected_ribbon = "Model"
+            return {
+                "ok": True,
+                "result": {
+                    "edit_mode": "closed",
+                    "left": True,
+                    "document": None if document is None else document["name"],
+                    "sketch": None if sketch is None else sketch["name"],
+                    "accepted_task_dialog": True,
                 },
             }
         if "vibecad.workflow-harness:dismiss_document_recovery" in source:

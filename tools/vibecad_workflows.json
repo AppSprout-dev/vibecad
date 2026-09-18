@@ -23,16 +23,6 @@
       "title": "Sketch then pad",
       "steps": [
         {
-          "id": "seed_new_document",
-          "click": {
-            "kind": "action",
-            "text": "Std_New"
-          },
-          "check": {
-            "document_count_min": 1
-          }
-        },
-        {
           "id": "select_model_ribbon",
           "click": {
             "kind": "ribbon",
@@ -79,12 +69,11 @@
         },
         {
           "id": "leave_sketch",
-          "click": {
-            "kind": "action",
-            "text": "Sketcher_LeaveSketch"
+          "run": {
+            "id": "leave_active_sketch"
           },
           "check": {
-            "click_ok": true,
+            "run_ok": true,
             "tree_type_ids": [
               "PartDesign::Body",
               "Sketcher::SketchObject"
@@ -130,104 +119,6 @@
       "id": "export",
       "title": "Export",
       "steps": [
-        {
-          "id": "seed_new_document",
-          "click": {
-            "kind": "action",
-            "text": "Std_New"
-          },
-          "check": {
-            "document_count_min": 1
-          }
-        },
-        {
-          "id": "select_model_ribbon",
-          "click": {
-            "kind": "ribbon",
-            "text": "Model"
-          },
-          "check": {
-            "click_ok": true
-          }
-        },
-        {
-          "id": "seed_body",
-          "click": {
-            "kind": "action",
-            "text": "PartDesign_NewBody"
-          },
-          "check": {
-            "tree_type_ids": [
-              "PartDesign::Body"
-            ]
-          }
-        },
-        {
-          "id": "seed_sketch",
-          "click": {
-            "kind": "action",
-            "text": "Sketcher_NewSketch"
-          },
-          "check": {
-            "click_ok": true
-          }
-        },
-        {
-          "id": "accept_sketch_orientation",
-          "click": {
-            "kind": "dialog",
-            "text": "OK"
-          },
-          "check": {
-            "tree_type_ids": [
-              "Sketcher::SketchObject"
-            ]
-          }
-        },
-        {
-          "id": "leave_sketch",
-          "click": {
-            "kind": "action",
-            "text": "Sketcher_LeaveSketch"
-          },
-          "check": {
-            "click_ok": true,
-            "tree_type_ids": [
-              "Sketcher::SketchObject"
-            ]
-          }
-        },
-        {
-          "id": "place_closed_profile",
-          "run": {
-            "id": "place_closed_circle"
-          },
-          "check": {
-            "sketch_geometry_min": 1
-          }
-        },
-        {
-          "id": "select_sketch",
-          "run": {
-            "id": "select_sketch"
-          },
-          "check": {
-            "run_ok": true,
-            "command_active": "PartDesign_DesignExtrude"
-          }
-        },
-        {
-          "id": "seed_extrude",
-          "click": {
-            "kind": "action",
-            "text": "PartDesign_DesignExtrude"
-          },
-          "check": {
-            "tree_type_ids": [
-              "PartDesign::DesignExtrude"
-            ]
-          }
-        },
         {
           "id": "export_step",
           "run": {

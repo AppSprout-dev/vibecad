@@ -410,7 +410,17 @@ editor: domain tabs including Model are disabled, and
 `PartDesign_Pad` is not a `findChildren(QAction)` match because the
 command is never `addTo()`'d on the Model or sketch.edit ribbon. The
 Finish-group command the window does expose is `Sketcher_LeaveSketch`.
-After leave, the rebuilt Model ribbon surfaces
+`CmdSketcherLeaveSketch::activated()` passes
+`getActiveGuiDocument()` (`Application::activeDocument()`) into
+`SketcherGui.leaveActiveSketch`. `requireExactEditState` then throws
+`The exact Sketch document is no longer active in edit mode` when
+`activeDocument()` is not `editDocument()`. A queued LeaveSketch
+click plus a new `Std_New` per workflow creates that split (active
+`Unnamed2`, editor still on an earlier document). The harness
+therefore keeps one document through new, sketch, Extrude, and
+export, and finishes the editor with
+`SketcherGui.leaveActiveSketch` on `Gui.editDocument()`, not the
+active tab. After leave, the rebuilt Model ribbon surfaces
 `PartDesign_DesignExtrude`. An empty sketch makes
 `ProfileBased` throw `Linked shape object is empty` and
 `startConfiguredDesignProfileOperation` then raises

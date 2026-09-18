@@ -327,20 +327,35 @@ def run_harness(
     judge_transport: Any = None,
     export_path: str = "",
 ) -> dict[str, Any]:
-    preflight = run_step(
+    preflight_steps = [
         {
             "id": "dismiss_document_recovery",
             "run": {"id": "dismiss_document_recovery"},
             "check": {"run_ok": True},
         },
-        client,
-        timeout_seconds=timeout_seconds,
-        judge_enabled=judge_enabled,
-        judge_transport=judge_transport,
-        export_path=export_path,
-    )
+        {
+            "id": "leave_leftover_sketch",
+            "run": {"id": "leave_active_sketch"},
+            "check": {"run_ok": True},
+        },
+    ]
+    preflight = []
+    preflight_passed = True
+    for step in preflight_steps:
+        result = run_step(
+            step,
+            client,
+            timeout_seconds=timeout_seconds,
+            judge_enabled=judge_enabled,
+            judge_transport=judge_transport,
+            export_path=export_path,
+        )
+        preflight.append(result)
+        if not result["passed"]:
+            preflight_passed = False
+            break
     results = []
-    if preflight["passed"]:
+    if preflight_passed:
         results = [
             run_workflow(
                 workflow,
@@ -357,7 +372,7 @@ def run_harness(
         "click_route": "/v1/ui/click",
         "tour_remains_demo": TOUR_SCRIPT.is_file(),
         "judge_requested": bool(judge_enabled),
-        "passed": bool(preflight["passed"] and results and all(item["passed"] for item in results)),
+        "passed": bool(preflight_passed and results and all(item["passed"] for item in results)),
         "preflight": preflight,
         "workflows": results,
     }

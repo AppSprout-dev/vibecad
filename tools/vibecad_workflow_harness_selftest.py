@@ -87,7 +87,7 @@ def main() -> int:
             and "PartDesign_NewBody" in sketch_clicks
             and "Sketcher_NewSketch" in sketch_clicks
             and "OK" in sketch_clicks
-            and "Sketcher_LeaveSketch" in sketch_clicks
+            and "leave_active_sketch" in workflow_source
             and "PartDesign_DesignExtrude" in sketch_clicks
             and "PartDesign_Pad" not in sketch_clicks,
             {"sketch_clicks": sketch_clicks},
@@ -303,7 +303,6 @@ def main() -> int:
             "closed_profile_then_extrude_creates_solid_and_export_writes_file",
             sketch_step_ids
             == [
-                "seed_new_document",
                 "select_model_ribbon",
                 "click_body",
                 "click_sketch",
@@ -320,6 +319,8 @@ def main() -> int:
             and exported_path.endswith(".step")
             and export_bytes >= 1
             and "place_closed_circle" in channel_source
+            and "leave_active_sketch" in channel_source
+            and "leaveActiveSketch" in channel_source
             and "Part.Circle" in channel_source
             and "addGeometry" in channel_source
             and "Import.export" in channel_source,
