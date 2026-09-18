@@ -106,7 +106,8 @@
             "id": "select_sketch"
           },
           "check": {
-            "run_ok": true
+            "run_ok": true,
+            "command_active": "PartDesign_DesignExtrude"
           }
         },
         {
@@ -211,7 +212,8 @@
             "id": "select_sketch"
           },
           "check": {
-            "run_ok": true
+            "run_ok": true,
+            "command_active": "PartDesign_DesignExtrude"
           }
         },
         {

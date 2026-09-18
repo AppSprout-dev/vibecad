@@ -274,7 +274,8 @@ def main() -> int:
             empty_extrude = client.click("action", "PartDesign_DesignExtrude")
             empty_tree = client.inspect_tree()
             placed = client.run(channel.workflow_run_python("place_closed_circle"))
-            client.run(channel.workflow_run_python("select_sketch"))
+            disabled_after_place = client.click("action", "PartDesign_DesignExtrude")
+            selected = client.run(channel.workflow_run_python("select_sketch"))
             filled_extrude = client.click("action", "PartDesign_DesignExtrude")
             filled_tree = client.inspect_tree()
         finally:
@@ -347,6 +348,10 @@ def main() -> int:
             and "Sketcher::SketchObject" in empty_type_ids
             and placed.get("ok") is True
             and int((placed.get("result") or {}).get("geometry_count") or 0) >= 1
+            and disabled_after_place.get("failure_code") == "UI_TARGET_DISABLED"
+            and selected.get("ok") is True
+            and (selected.get("result") or {}).get("sub") == "InternalFace1"
+            and (selected.get("result") or {}).get("command_active") is True
             and filled_extrude.get("ok") is True
             and not filled_extrude.get("error")
             and "PartDesign::DesignExtrude" in filled_type_ids,
@@ -355,8 +360,49 @@ def main() -> int:
                 "model_while_editing": model_while_editing.get("failure_code"),
                 "rectangle_added_profile": rectangle_added_profile,
                 "empty_extrude_error": empty_extrude.get("error"),
+                "disabled_after_place": disabled_after_place.get("failure_code"),
+                "selected_sub": (selected.get("result") or {}).get("sub"),
                 "empty_type_ids": sorted(empty_type_ids),
                 "filled_type_ids": sorted(filled_type_ids),
+            },
+        )
+    )
+
+    recovery_ok = None
+    dismissed = None
+    with tempfile.TemporaryDirectory(prefix="vibecad-workflow-harness-") as temp:
+        token = secrets.token_hex(24)
+        server, base_url, _state = channel.start_fake_channel(
+            temp, token, recovery_dialog=True
+        )
+        try:
+            client = channel.AgentClickChannel(base_url, token, timeout_seconds=5)
+            client.click("action", "Std_New")
+            client.click("ribbon", "Model")
+            client.click("action", "PartDesign_NewBody")
+            client.click("action", "Sketcher_NewSketch")
+            recovery_ok = client.click("dialog", "OK")
+            dismissed = client.run(
+                channel.workflow_run_python("dismiss_document_recovery")
+            )
+            after_cancel = client.click("dialog", "OK")
+        finally:
+            server.shutdown()
+            server.server_close()
+    scenarios.append(
+        scenario(
+            "document_recovery_is_dismissed_with_cancel_not_start_recovery",
+            recovery_ok.get("failure_code") == "UI_TARGET_NOT_UNIQUE"
+            and "found 2" in str(recovery_ok.get("error") or "")
+            and dismissed.get("ok") is True
+            and (dismissed.get("result") or {}).get("button") == "Cancel"
+            and (dismissed.get("result") or {}).get("dismissed") == ["Cancel"]
+            and after_cancel.get("ok") is True
+            and after_cancel.get("object_name") == "Choose Orientation",
+            {
+                "recovery_ok": recovery_ok.get("failure_code"),
+                "dismissed": dismissed.get("result"),
+                "after_cancel": after_cancel.get("object_name"),
             },
         )
     )

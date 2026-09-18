@@ -166,6 +166,13 @@ def evaluate_check(
     )
     if check.get("run_ok") and not click_payload.get("ok"):
         errors.append("run_ok expected POST /v1/run to succeed")
+    required_command = check.get("command_active")
+    if required_command:
+        if not bool(run_result.get("command_active")):
+            errors.append(
+                f"command_active {required_command} failed; "
+                "PartDesign_DesignExtrude is not enabled"
+            )
     if check.get("exported"):
         exported = str(
             run_result.get("exported_path")
@@ -320,23 +327,38 @@ def run_harness(
     judge_transport: Any = None,
     export_path: str = "",
 ) -> dict[str, Any]:
-    results = [
-        run_workflow(
-            workflow,
-            client,
-            timeout_seconds=timeout_seconds,
-            judge_enabled=judge_enabled,
-            judge_transport=judge_transport,
-            export_path=export_path,
-        )
-        for workflow in workflows
-    ]
+    preflight = run_step(
+        {
+            "id": "dismiss_document_recovery",
+            "run": {"id": "dismiss_document_recovery"},
+            "check": {"run_ok": True},
+        },
+        client,
+        timeout_seconds=timeout_seconds,
+        judge_enabled=judge_enabled,
+        judge_transport=judge_transport,
+        export_path=export_path,
+    )
+    results = []
+    if preflight["passed"]:
+        results = [
+            run_workflow(
+                workflow,
+                client,
+                timeout_seconds=timeout_seconds,
+                judge_enabled=judge_enabled,
+                judge_transport=judge_transport,
+                export_path=export_path,
+            )
+            for workflow in workflows
+        ]
     return {
         "schema": "vibecad.workflow-harness-report.v1",
         "click_route": "/v1/ui/click",
         "tour_remains_demo": TOUR_SCRIPT.is_file(),
         "judge_requested": bool(judge_enabled),
-        "passed": all(item["passed"] for item in results),
+        "passed": bool(preflight["passed"] and results and all(item["passed"] for item in results)),
+        "preflight": preflight,
         "workflows": results,
     }
 

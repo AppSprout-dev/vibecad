@@ -416,8 +416,21 @@ draw. After `Sketcher_LeaveSketch`, it posts the existing
 `/v1/run` route (already used for tree inspect) with the same
 `SketchObject.addGeometry(Part.Circle(...), False)` call
 `TestConsolidatedPartTools._circle_sketch` and
-`TestSketcherSolver.CreateCircleSketch` already use, then
-`Gui.Selection.addSelection` and the Extrude button. A pass
+`TestSketcherSolver.CreateCircleSketch` already use. Extrude is
+enabled by `designProfileOperationActive()`: a reusable sketch or
+one or more `InternalFace*` regions, not an edge
+(`ReferenceSelection.cpp`, `TestDesignProfileRegionsGui`). The
+harness therefore selects `InternalFace1` on the sketch object
+and calls `Gui.Command.update()` so the `QAction` enabled flag
+matches `isActive()`, then clicks the Extrude button.
+
+Before any workflow, the harness dismisses a leftover
+`Document Recovery` dialog with its real `Cancel` button
+(`DocumentRecovery.ui` / `DocumentRecovery.cpp`). It does not
+press `Start Recovery` (that is the relabeled Ok button). A dirty
+kill leaves that modal under the next Choose Orientation; kind
+`dialog` text `OK` then matches every visible `QDialog` and never
+lands. A pass
 leaves `PartDesign::Body`, a `Sketcher::SketchObject` with
 `GeometryCount >= 1`, and `PartDesign::DesignExtrude` in the
 tree. Export does not click `Std_Export`: that command's

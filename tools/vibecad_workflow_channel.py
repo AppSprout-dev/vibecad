@@ -47,6 +47,7 @@ result = {
 PLACE_CLOSED_CIRCLE_PYTHON = """
 # vibecad.workflow-harness:place_closed_circle
 import Part
+import PartDesign
 
 doc = App.ActiveDocument
 if doc is None:
@@ -66,8 +67,7 @@ if int(sketch.GeometryCount) == 0:
         Part.Circle(App.Vector(0, 0, 0), App.Vector(0, 0, 1), 10),
         False,
     )
-if hasattr(sketch, "finalizeDesignDefinition"):
-    sketch.finalizeDesignDefinition()
+PartDesign.finalizeDesignDefinition(sketch)
 doc.recompute()
 result = {
     "sketch": str(sketch.Name),
@@ -75,8 +75,46 @@ result = {
 }
 """
 
+# DocumentRecovery.ui title is "Document Recovery".
+# DocumentRecovery.cpp relabels Ok to "Start Recovery".
+# The other standard button is Cancel (QDialogButtonBox::Cancel).
+DISMISS_DOCUMENT_RECOVERY_PYTHON = """
+# vibecad.workflow-harness:dismiss_document_recovery
+QtWidgets = None
+for module_name in ("PySide6.QtWidgets", "PySide2.QtWidgets", "PySide.QtWidgets"):
+    try:
+        QtWidgets = __import__(module_name, fromlist=["QDialog"])
+        break
+    except ImportError:
+        continue
+if QtWidgets is None:
+    raise RuntimeError("Qt widgets are unavailable")
+
+dismissed = []
+main = Gui.getMainWindow()
+for dialog in list(main.findChildren(QtWidgets.QDialog) or []):
+    if not bool(getattr(dialog, "isVisible", lambda: False)()):
+        continue
+    title = str(dialog.windowTitle() or "")
+    if title != "Document Recovery":
+        continue
+    box = dialog.findChild(QtWidgets.QDialogButtonBox)
+    cancel = box.button(QtWidgets.QDialogButtonBox.Cancel) if box is not None else None
+    if cancel is None:
+        raise RuntimeError("Document Recovery has no Cancel button")
+    cancel.click()
+    dismissed.append("Cancel")
+result = {"dismissed": dismissed, "button": "Cancel"}
+"""
+
+# designProfileOperationActive() requires a reusable sketch or InternalFace*
+# (ReferenceSelection.cpp). Edge1 disables Extrude. The live enable path in
+# TestDesignProfileRegionsGui is addSelection(sketch, "InternalFace1") plus
+# Gui.Command.update() so the QAction isEnabled flag matches isActive().
 SELECT_SKETCH_PYTHON = """
 # vibecad.workflow-harness:select_sketch
+import PartDesign
+
 doc = App.ActiveDocument
 if doc is None:
     raise RuntimeError("No active document")
@@ -90,9 +128,27 @@ sketch = next(
 )
 if sketch is None:
     raise RuntimeError("No Sketcher::SketchObject")
+if int(sketch.GeometryCount) < 1:
+    raise RuntimeError("Sketch has no geometry to select")
+PartDesign.finalizeDesignDefinition(sketch)
+doc.recompute()
+faces = list(getattr(getattr(sketch, "InternalShape", None), "Faces", []) or [])
+if not faces:
+    raise RuntimeError(
+        "Sketch has no InternalFace; closed profile did not produce a filled area"
+    )
 Gui.Selection.clearSelection()
-Gui.Selection.addSelection(doc.Name, sketch.Name)
-result = {"selected": str(sketch.Name)}
+Gui.Selection.addSelection(sketch, "InternalFace1")
+if hasattr(Gui, "Command") and hasattr(Gui.Command, "update"):
+    Gui.Command.update()
+command_active = False
+if hasattr(Gui, "isCommandActive"):
+    command_active = bool(Gui.isCommandActive("PartDesign_DesignExtrude"))
+result = {
+    "selected": str(sketch.Name),
+    "sub": "InternalFace1",
+    "command_active": command_active,
+}
 """
 
 # Import.export is the in-process exporter Std_Export calls after
@@ -130,6 +186,7 @@ def workflow_run_python(recipe_id: str, *, export_path: str = "") -> str:
     recipes = {
         "place_closed_circle": PLACE_CLOSED_CIRCLE_PYTHON,
         "select_sketch": SELECT_SKETCH_PYTHON,
+        "dismiss_document_recovery": DISMISS_DOCUMENT_RECOVERY_PYTHON,
         "export_step": EXPORT_STEP_PYTHON.replace(
             "__EXPORT_PATH__", json.dumps(str(export_path))
         ),
@@ -266,7 +323,7 @@ class AgentClickChannel:
 class FakeAgentState:
     """In-memory GUI/document state for CI when no display is available."""
 
-    def __init__(self, export_dir: str) -> None:
+    def __init__(self, export_dir: str, *, recovery_dialog: bool = False) -> None:
         self.export_dir = export_dir
         self.documents: list[dict[str, Any]] = []
         self.active_index = -1
@@ -275,6 +332,8 @@ class FakeAgentState:
         self.click_count = 0
         self.orientation_dialog = False
         self.sketch_edit = False
+        self.recovery_dialog = bool(recovery_dialog)
+        self.selection: list[dict[str, str]] = []
 
     def active_document(self) -> dict[str, Any] | None:
         if self.active_index < 0 or self.active_index >= len(self.documents):
@@ -338,12 +397,24 @@ class FakeAgentState:
                 }
             sketch["closed_profile"] = True
             sketch["geometry_count"] = max(int(sketch.get("geometry_count") or 0), 1)
+            # Adding geometry resolves a leftover tree selection to an edge.
+            # Edge1 is the live disable path in TestDesignProfileRegionsGui.
+            self.selection = [{"name": sketch["name"], "sub": "Edge1"}]
             return {
                 "ok": True,
                 "result": {
                     "sketch": sketch["name"],
                     "geometry_count": sketch["geometry_count"],
                 },
+            }
+        if "vibecad.workflow-harness:dismiss_document_recovery" in source:
+            dismissed = []
+            if self.recovery_dialog:
+                self.recovery_dialog = False
+                dismissed.append("Cancel")
+            return {
+                "ok": True,
+                "result": {"dismissed": dismissed, "button": "Cancel"},
             }
         if "vibecad.workflow-harness:select_sketch" in source:
             if document is None:
@@ -366,7 +437,29 @@ class FakeAgentState:
                     "failure_code": "SCRIPT_FAILED",
                     "error": "No Sketcher::SketchObject",
                 }
-            return {"ok": True, "result": {"selected": sketch["name"]}}
+            if int(sketch.get("geometry_count") or 0) < 1:
+                return {
+                    "ok": False,
+                    "failure_code": "SCRIPT_FAILED",
+                    "error": "Sketch has no geometry to select",
+                }
+            if "InternalFace1" in source:
+                self.selection = [{"name": sketch["name"], "sub": "InternalFace1"}]
+                command_active = True
+                sub = "InternalFace1"
+            else:
+                # Name-pair addSelection after a circle is the live miss.
+                self.selection = [{"name": sketch["name"], "sub": "Edge1"}]
+                command_active = False
+                sub = "Edge1"
+            return {
+                "ok": True,
+                "result": {
+                    "selected": sketch["name"],
+                    "sub": sub,
+                    "command_active": command_active,
+                },
+            }
         if "vibecad.workflow-harness:export_step" in source:
             if document is None:
                 return {
@@ -492,6 +585,7 @@ class FakeAgentState:
             name = f"Unnamed{len(self.documents) + 1}"
             self.documents.append({"name": name, "objects": []})
             self.active_index = len(self.documents) - 1
+            self.selection = []
             details["object_name"] = "Std_New"
             # Creating a document moves focus. The live agent reports that
             # as UI_CLICK_NOT_APPLIED; the harness must still pass on the
@@ -594,7 +688,7 @@ class FakeAgentState:
             }
 
         if text in {"PartDesign_DesignExtrude", "Extrude"}:
-            if self.sketch_edit:
+            if self.sketch_edit or not self._design_extrude_active():
                 return {
                     "ok": False,
                     "failure_code": "UI_TARGET_DISABLED",
@@ -646,7 +740,65 @@ class FakeAgentState:
             "error": f"Expected exactly one action named {text!r}; found 0.",
         }
 
+    def _design_extrude_active(self) -> bool:
+        document = self.active_document()
+        if document is None:
+            return False
+        sketch = next(
+            (
+                obj
+                for obj in document["objects"]
+                if obj["type_id"] == "Sketcher::SketchObject"
+            ),
+            None,
+        )
+        if sketch is None:
+            return False
+        for item in self.selection:
+            if item.get("name") != sketch["name"]:
+                continue
+            sub = str(item.get("sub") or "")
+            if sub.startswith("Edge"):
+                return False
+            if sub.startswith("InternalFace") or sub == "":
+                return True
+        return False
+
     def _click_dialog(self, text: str, details: dict[str, Any]) -> dict[str, Any]:
+        visible_titles = []
+        if self.recovery_dialog:
+            visible_titles.append("Document Recovery")
+        if self.orientation_dialog:
+            visible_titles.append("Choose Orientation")
+        if text in {"Cancel"}:
+            if not self.recovery_dialog:
+                return {
+                    "ok": False,
+                    "failure_code": "UI_TARGET_NOT_UNIQUE",
+                    "error": f"Expected exactly one visible dialog named {text!r}; found 0.",
+                }
+            self.recovery_dialog = False
+            details["object_name"] = "Document Recovery"
+            return {"ok": True, **details}
+        if text in {"OK", "Ok"}:
+            # Live dialog kind treats OK as matching every visible QDialog.
+            if len(visible_titles) != 1:
+                return {
+                    "ok": False,
+                    "failure_code": "UI_TARGET_NOT_UNIQUE",
+                    "error": (
+                        f"Expected exactly one visible dialog named {text!r}; "
+                        f"found {len(visible_titles)}."
+                    ),
+                }
+            if visible_titles[0] == "Document Recovery":
+                return {
+                    "ok": False,
+                    "failure_code": "UI_CLICK_NOT_APPLIED",
+                    "error": "Document Recovery OK is Start Recovery.",
+                    **details,
+                    "semantic_verified": False,
+                }
         if text not in {"OK", "Ok", "Choose Orientation"}:
             return {
                 "ok": False,
@@ -677,6 +829,7 @@ class FakeAgentState:
                     "geometry_count": 0,
                 }
         )
+        self.selection = [{"name": "Sketch", "sub": ""}]
         self.orientation_dialog = False
         self.sketch_edit = True
         self.selected_ribbon = "Sketch"
@@ -799,8 +952,13 @@ class FakeAgentServer(ThreadingHTTPServer):
         self.state = state
 
 
-def start_fake_channel(export_dir: str, token: str) -> tuple[FakeAgentServer, str, FakeAgentState]:
-    state = FakeAgentState(export_dir)
+def start_fake_channel(
+    export_dir: str,
+    token: str,
+    *,
+    recovery_dialog: bool = False,
+) -> tuple[FakeAgentServer, str, FakeAgentState]:
+    state = FakeAgentState(export_dir, recovery_dialog=recovery_dialog)
     server = FakeAgentServer(token, state)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

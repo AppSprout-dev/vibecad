@@ -34,6 +34,10 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert "PartDesign_DesignExtrude" in workflows
     assert "place_closed_circle" in workflows
     assert "export_step" in workflows
+    assert "InternalFace1" in channel
+    assert "Document Recovery" in channel
+    assert "Start Recovery" in channel
+    assert "Cancel" in channel
     assert "PartDesign_Pad" not in workflows
     assert "Part.Circle" in channel
     assert "Import.export" in channel
