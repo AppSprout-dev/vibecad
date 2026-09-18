@@ -402,7 +402,18 @@ editor: domain tabs including Model are disabled, and
 command is never `addTo()`'d on the Model or sketch.edit ribbon. The
 Finish-group command the window does expose is `Sketcher_LeaveSketch`.
 After leave, the rebuilt Model ribbon surfaces
-`PartDesign_DesignExtrude`, which creates `PartDesign::DesignExtrude`.
+`PartDesign_DesignExtrude`. An empty sketch makes
+`ProfileBased` throw `Linked shape object is empty` and
+`startConfiguredDesignProfileOperation` then raises
+`The Design operation task panel did not open`. The smallest
+closed-profile control on the sketch.edit Geometry group is
+`Sketcher_CreateRectangle` (child of
+`Sketcher_CompCreateRectangles`). Its `activated()` only starts
+`DrawSketchHandlerRectangle`; it does not add geometry. Placing
+the two corners needs viewport clicks, which `/v1/ui/click` kinds
+do not do. The harness therefore expects
+`PartDesign::DesignExtrude` only after a non-empty sketch, and
+this click path cannot create one.
 A successful trigger
 counts as applied even when creating a document moves Qt focus;
 restoration fields stay on the payload for evidence. Optional `expected_process_id` and

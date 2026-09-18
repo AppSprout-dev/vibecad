@@ -87,7 +87,7 @@ def main() -> int:
             and "Sketcher_NewSketch" in sketch_clicks
             and "OK" in sketch_clicks
             and "Sketcher_LeaveSketch" in sketch_clicks
-            and "PartDesign_DesignExtrude" in sketch_clicks
+            and "PartDesign_DesignExtrude" not in sketch_clicks
             and "PartDesign_Pad" not in sketch_clicks,
             {"sketch_clicks": sketch_clicks},
         )
@@ -230,10 +230,9 @@ def main() -> int:
         item for item in report["workflows"] if item["id"] == "sketch_then_pad"
     )
     sketch_step_ids = [str(step.get("id") or "") for step in sketch_workflow["steps"]]
-    leave_index = sketch_step_ids.index("leave_sketch")
-    extrude_index = sketch_step_ids.index("click_extrude")
     pad_while_editing = None
     model_while_editing = None
+    rectangle_while_editing = None
     with tempfile.TemporaryDirectory(prefix="vibecad-workflow-harness-") as temp:
         token = secrets.token_hex(24)
         server, base_url, _state = channel.start_fake_channel(temp, token)
@@ -246,32 +245,49 @@ def main() -> int:
             client.click("dialog", "OK")
             pad_while_editing = client.click("action", "PartDesign_Pad")
             model_while_editing = client.click("ribbon", "Model")
+            rectangle_while_editing = client.click("action", "Sketcher_CreateRectangle")
+            after_rectangle = client.inspect_tree()
             leave = client.click("action", "Sketcher_LeaveSketch")
             extrude = client.click("action", "PartDesign_DesignExtrude")
             tree = client.inspect_tree()
         finally:
             server.shutdown()
             server.server_close()
+    after_rectangle_objects = (
+        (after_rectangle.get("result") or {}).get("objects") or []
+    )
     type_ids = {
         str(item.get("type_id") or "")
         for item in ((tree.get("result") or {}).get("objects") or [])
         if isinstance(item, dict)
     }
+    rectangle_added_profile = any(
+        isinstance(item, dict) and item.get("closed_profile")
+        for item in after_rectangle_objects
+    )
     scenarios.append(
         scenario(
-            "leave_sketch_before_model_extrude",
-            leave_index < extrude_index
+            "empty_sketch_does_not_create_design_extrude",
+            sketch_step_ids[-1] == "leave_sketch"
+            and "click_extrude" not in sketch_step_ids
             and pad_while_editing.get("failure_code") == "UI_TARGET_NOT_UNIQUE"
             and "found 0" in str(pad_while_editing.get("error") or "")
             and model_while_editing.get("failure_code") == "UI_TARGET_DISABLED"
+            and rectangle_while_editing.get("ok") is True
+            and rectangle_while_editing.get("object_name") == "Sketcher_CreateRectangle"
+            and rectangle_added_profile is False
             and leave.get("ok") is True
             and leave.get("object_name") == "Sketcher_LeaveSketch"
             and extrude.get("ok") is True
-            and "PartDesign::DesignExtrude" in type_ids,
+            and extrude.get("error") == "Linked shape object is empty"
+            and "PartDesign::DesignExtrude" not in type_ids
+            and "Sketcher::SketchObject" in type_ids,
             {
                 "sketch_step_ids": sketch_step_ids,
                 "pad_while_editing": pad_while_editing.get("failure_code"),
                 "model_while_editing": model_while_editing.get("failure_code"),
+                "rectangle_added_profile": rectangle_added_profile,
+                "extrude_error": extrude.get("error"),
                 "type_ids": sorted(type_ids),
             },
         )

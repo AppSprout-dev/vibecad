@@ -336,6 +336,23 @@ class FakeAgentState:
             details["click_queued"] = True
             return {"ok": True, **details}
 
+        if text in {
+            "Sketcher_CreateRectangle",
+            "Sketcher_CompCreateRectangles",
+            "Rectangle",
+        }:
+            # Real sketch.edit Geometry control. activated() only starts
+            # DrawSketchHandlerRectangle; it does not add a closed profile.
+            if not self.sketch_edit:
+                return {
+                    "ok": False,
+                    "failure_code": "UI_TARGET_NOT_UNIQUE",
+                    "error": f"Expected exactly one action named {text!r}; found 0.",
+                }
+            details["object_name"] = "Sketcher_CreateRectangle"
+            details["click_queued"] = True
+            return {"ok": True, **details}
+
         if text in {"Sketcher_LeaveSketch", "Leave Sketch"}:
             if not self.sketch_edit:
                 return {
@@ -377,6 +394,19 @@ class FakeAgentState:
                     **details,
                     "semantic_verified": False,
                 }
+            has_closed_profile = any(
+                str(obj.get("type_id") or "") == "Sketcher::SketchObject"
+                and bool(obj.get("closed_profile"))
+                for obj in document["objects"]
+            )
+            details["object_name"] = "PartDesign_DesignExtrude"
+            details["click_queued"] = True
+            if not has_closed_profile:
+                # Live queues the trigger, then FeatureSketchBased throws
+                # "Linked shape object is empty" and Command.cpp aborts
+                # after setEdit finds no task panel. No DesignExtrude object.
+                details["error"] = "Linked shape object is empty"
+                return {"ok": True, **details}
             document["objects"].append(
                 {
                     "name": "Extrude",
@@ -384,7 +414,6 @@ class FakeAgentState:
                     "label": "Extrude",
                 }
             )
-            details["object_name"] = "PartDesign_DesignExtrude"
             return {"ok": True, **details}
 
         if text in {"Std_Export", "Export"}:
@@ -428,6 +457,7 @@ class FakeAgentState:
                 "name": "Sketch",
                 "type_id": "Sketcher::SketchObject",
                 "label": "Sketch",
+                "closed_profile": False,
             }
         )
         self.orientation_dialog = False

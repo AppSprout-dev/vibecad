@@ -31,8 +31,9 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert "PartDesign_NewBody" in workflows
     assert "Sketcher_NewSketch" in workflows
     assert "Sketcher_LeaveSketch" in workflows
-    assert "PartDesign_DesignExtrude" in workflows
+    assert "PartDesign_DesignExtrude" not in workflows
     assert "PartDesign_Pad" not in workflows
+    assert "Sketcher_CreateRectangle" in CHANNEL.read_text(encoding="utf-8")
     assert '"kind": "dialog"' in workflows
     assert '"text": "OK"' in workflows
     assert "Std_New" in workflows

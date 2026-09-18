@@ -90,20 +90,6 @@
               "Sketcher::SketchObject"
             ]
           }
-        },
-        {
-          "id": "click_extrude",
-          "click": {
-            "kind": "action",
-            "text": "PartDesign_DesignExtrude"
-          },
-          "check": {
-            "tree_type_ids": [
-              "PartDesign::Body",
-              "Sketcher::SketchObject",
-              "PartDesign::DesignExtrude"
-            ]
-          }
         }
       ]
     },
@@ -175,18 +161,6 @@
             "click_ok": true,
             "tree_type_ids": [
               "Sketcher::SketchObject"
-            ]
-          }
-        },
-        {
-          "id": "seed_extrude",
-          "click": {
-            "kind": "action",
-            "text": "PartDesign_DesignExtrude"
-          },
-          "check": {
-            "tree_type_ids": [
-              "PartDesign::DesignExtrude"
             ]
           }
         },
