@@ -2160,6 +2160,119 @@ def test_ui_action_click_counts_as_applied_when_focus_moves(monkeypatch) -> None
     assert application.focus is action
 
 
+def test_ui_action_click_finds_qaction_children_not_on_toolbars(monkeypatch) -> None:
+    class Point:
+        def __init__(self, x: int, y: int) -> None:
+            self._x = x
+            self._y = y
+
+        def x(self) -> int:
+            return self._x
+
+        def y(self) -> int:
+            return self._y
+
+    class QAction:
+        pass
+
+    class Action:
+        def __init__(self) -> None:
+            self.triggered = 0
+
+        def text(self) -> str:
+            return "New Body"
+
+        def objectName(self) -> str:  # noqa: N802
+            return "PartDesign_NewBody"
+
+        def isEnabled(self) -> bool:  # noqa: N802
+            return True
+
+        def isVisible(self) -> bool:  # noqa: N802
+            return True
+
+        def menu(self):
+            return None
+
+        def trigger(self) -> None:
+            self.triggered += 1
+
+    action = Action()
+
+    def find_children(kind):
+        if kind is QAction:
+            return [action]
+        return []
+
+    class MenuBar:
+        def actions(self) -> list:
+            return []
+
+    window = SimpleNamespace(
+        menuBar=lambda: MenuBar(),
+        actions=lambda: [],
+        findChildren=find_children,
+    )
+    application = SimpleNamespace(
+        focus=None,
+        active_window=window,
+        popup=None,
+    )
+    qt_core = SimpleNamespace(
+        Qt=SimpleNamespace(
+            LeftButton="left",
+            NoModifier="none",
+            OtherFocusReason="other",
+        )
+    )
+    qt_gui = SimpleNamespace(
+        QCursor=SimpleNamespace(pos=lambda: Point(10, 20)),
+        QAction=QAction,
+    )
+    qt_widgets = SimpleNamespace(
+        QTabBar=object,
+        QToolBar=object,
+        QApplication=SimpleNamespace(
+            processEvents=lambda: None,
+            focusWidget=lambda: application.focus,
+            activeWindow=lambda: application.active_window,
+            activePopupWidget=lambda: application.popup,
+        ),
+    )
+
+    class QTest:
+        @staticmethod
+        def mouseClick(_widget, _button, _modifiers, _point) -> None:  # noqa: N802
+            raise AssertionError("action clicks must not use QTest.mouseClick")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide",
+        SimpleNamespace(QtCore=qt_core, QtGui=qt_gui, QtWidgets=qt_widgets),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "PySide6",
+        SimpleNamespace(QtTest=SimpleNamespace(QTest=QTest)),
+    )
+    monkeypatch.setattr(
+        control,
+        "_gui",
+        lambda: SimpleNamespace(GuiUp=True, getMainWindow=lambda: window),
+    )
+
+    missing = control._collect_named_qt_actions(window, qt_widgets, "PartDesign_NewBody")
+    assert missing == []
+
+    payload = control.dispatch(
+        "ui_click", {"kind": "action", "text": "PartDesign_NewBody"}
+    )
+    assert payload["ok"] is True
+    assert payload["object_name"] == "PartDesign_NewBody"
+    assert payload["input_method"] == "qt_in_process_action_trigger"
+    assert action.triggered == 1
+
+
 def test_screenshot_captures_the_visible_vibecad_window(tmp_path, monkeypatch) -> None:
     target = tmp_path / "visible-vibecad.png"
 

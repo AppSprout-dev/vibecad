@@ -58,7 +58,7 @@
           "id": "click_sketch",
           "click": {
             "kind": "action",
-            "text": "PartDesign_NewSketch"
+            "text": "Sketcher_NewSketch"
           },
           "check": {
             "tree_type_ids": [
@@ -123,7 +123,7 @@
           "id": "seed_sketch",
           "click": {
             "kind": "action",
-            "text": "PartDesign_NewSketch"
+            "text": "Sketcher_NewSketch"
           },
           "check": {
             "tree_type_ids": [

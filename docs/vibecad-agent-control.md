@@ -390,7 +390,9 @@ tracking explicitly by supplying an `operation_id` through the HTTP API.
 
 `/v1/ui/click` targets an exact live Qt menu action,
 `VibeCADRibbonTabs` entry, or named command `QAction` by visible text
-or object name. Ribbon and menu kinds stay unchanged. The additive
+or object name. Action search uses the same `findChildren(QAction)`
+set the main window already exposes, not only toolbar or menu-bar
+`actions()`. Ribbon and menu kinds stay unchanged. The additive
 `action` kind calls `QAction.trigger()` in-process and still does not
 move or click the OS cursor. A successful trigger counts as applied even
 when creating a document moves Qt focus; restoration fields stay on the

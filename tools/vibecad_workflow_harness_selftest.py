@@ -84,9 +84,8 @@ def main() -> int:
             "workflows_use_visible_ribbon_and_part_design_commands",
             '"kind": "menu"' not in workflow_source
             and "PartDesign_NewBody" in sketch_clicks
-            and "PartDesign_NewSketch" in sketch_clicks
-            and "PartDesign_Pad" in sketch_clicks
-            and "Sketcher_NewSketch" not in sketch_clicks,
+            and "Sketcher_NewSketch" in sketch_clicks
+            and "PartDesign_Pad" in sketch_clicks,
             {"sketch_clicks": sketch_clicks},
         )
     )

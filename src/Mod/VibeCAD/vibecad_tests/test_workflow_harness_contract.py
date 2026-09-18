@@ -29,7 +29,7 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert "\"export\"" in workflows
     assert '"kind": "menu"' not in workflows
     assert "PartDesign_NewBody" in workflows
-    assert "PartDesign_NewSketch" in workflows
+    assert "Sketcher_NewSketch" in workflows
     assert "PartDesign_Pad" in workflows
     assert "Std_New" in workflows
     assert "Std_Export" in workflows

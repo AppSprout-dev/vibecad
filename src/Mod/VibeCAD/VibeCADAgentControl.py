@@ -2452,8 +2452,14 @@ def _collect_named_qt_actions(
     main_window: Any,
     QtWidgets: Any,
     target_text: str,
+    QtGui: Any | None = None,
 ) -> list[tuple[int, Any]]:
-    """Return QActions whose visible text or objectName equals target_text."""
+    """Return QActions whose visible text or objectName equals target_text.
+
+    The live window registers commands as ``QAction`` children of the main
+    window. Searching only ``actions()`` on the window, menu bar, and
+    toolbars misses those, so this also uses ``findChildren(QAction)``.
+    """
 
     seen: set[int] = set()
     matches: list[tuple[int, Any]] = []
@@ -2485,6 +2491,17 @@ def _collect_named_qt_actions(
     if callable(finder) and toolbar_type is not None:
         try:
             owners.extend(list(finder(toolbar_type) or []))
+        except Exception:
+            pass
+    action_type = None
+    if QtGui is not None:
+        action_type = getattr(QtGui, "QAction", None)
+    if action_type is None:
+        action_type = getattr(QtWidgets, "QAction", None)
+    if callable(finder) and action_type is not None:
+        try:
+            for child in list(finder(action_type) or []):
+                consider(child)
         except Exception:
             pass
     for owner in owners:
@@ -2840,7 +2857,9 @@ def ui_click_target(
                 **state,
             }
         else:
-            matches = _collect_named_qt_actions(main_window, QtWidgets, target_text)
+            matches = _collect_named_qt_actions(
+                main_window, QtWidgets, target_text, QtGui
+            )
             if len(matches) != 1:
                 return failure(
                     "UI_TARGET_NOT_UNIQUE",
