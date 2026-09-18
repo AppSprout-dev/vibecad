@@ -39,6 +39,7 @@ def _run_fake(
                 timeout_seconds=5,
                 judge_enabled=kwargs.get("judge_enabled", False),
                 judge_transport=kwargs.get("judge_transport"),
+                export_path=str(Path(temp) / "vibecad-workflow-harness.step"),
             )
             return report, state, base_url
         finally:
@@ -87,7 +88,7 @@ def main() -> int:
             and "Sketcher_NewSketch" in sketch_clicks
             and "OK" in sketch_clicks
             and "Sketcher_LeaveSketch" in sketch_clicks
-            and "PartDesign_DesignExtrude" not in sketch_clicks
+            and "PartDesign_DesignExtrude" in sketch_clicks
             and "PartDesign_Pad" not in sketch_clicks,
             {"sketch_clicks": sketch_clicks},
         )
@@ -229,7 +230,29 @@ def main() -> int:
     sketch_workflow = next(
         item for item in report["workflows"] if item["id"] == "sketch_then_pad"
     )
+    export_workflow = next(
+        item for item in report["workflows"] if item["id"] == "export"
+    )
     sketch_step_ids = [str(step.get("id") or "") for step in sketch_workflow["steps"]]
+    extrude_step = next(
+        step for step in sketch_workflow["steps"] if step.get("id") == "click_extrude"
+    )
+    place_step = next(
+        step
+        for step in sketch_workflow["steps"]
+        if step.get("id") == "place_closed_profile"
+    )
+    export_step = next(
+        step for step in export_workflow["steps"] if step.get("id") == "export_step"
+    )
+    extrude_type_ids = {
+        str(item.get("type_id") or "")
+        for item in (extrude_step.get("tree") or {}).get("objects") or []
+        if isinstance(item, dict)
+    }
+    export_result = (export_step.get("click_response") or {}).get("result") or {}
+    exported_path = str(export_result.get("exported_path") or "")
+    export_bytes = int(export_result.get("bytes") or 0)
     pad_while_editing = None
     model_while_editing = None
     rectangle_while_editing = None
@@ -248,17 +271,26 @@ def main() -> int:
             rectangle_while_editing = client.click("action", "Sketcher_CreateRectangle")
             after_rectangle = client.inspect_tree()
             leave = client.click("action", "Sketcher_LeaveSketch")
-            extrude = client.click("action", "PartDesign_DesignExtrude")
-            tree = client.inspect_tree()
+            empty_extrude = client.click("action", "PartDesign_DesignExtrude")
+            empty_tree = client.inspect_tree()
+            placed = client.run(channel.workflow_run_python("place_closed_circle"))
+            client.run(channel.workflow_run_python("select_sketch"))
+            filled_extrude = client.click("action", "PartDesign_DesignExtrude")
+            filled_tree = client.inspect_tree()
         finally:
             server.shutdown()
             server.server_close()
     after_rectangle_objects = (
         (after_rectangle.get("result") or {}).get("objects") or []
     )
-    type_ids = {
+    empty_type_ids = {
         str(item.get("type_id") or "")
-        for item in ((tree.get("result") or {}).get("objects") or [])
+        for item in ((empty_tree.get("result") or {}).get("objects") or [])
+        if isinstance(item, dict)
+    }
+    filled_type_ids = {
+        str(item.get("type_id") or "")
+        for item in ((filled_tree.get("result") or {}).get("objects") or [])
         if isinstance(item, dict)
     }
     rectangle_added_profile = any(
@@ -267,10 +299,41 @@ def main() -> int:
     )
     scenarios.append(
         scenario(
-            "empty_sketch_does_not_create_design_extrude",
-            sketch_step_ids[-1] == "leave_sketch"
-            and "click_extrude" not in sketch_step_ids
-            and pad_while_editing.get("failure_code") == "UI_TARGET_NOT_UNIQUE"
+            "closed_profile_then_extrude_creates_solid_and_export_writes_file",
+            sketch_step_ids
+            == [
+                "seed_new_document",
+                "select_model_ribbon",
+                "click_body",
+                "click_sketch",
+                "accept_sketch_orientation",
+                "leave_sketch",
+                "place_closed_profile",
+                "select_sketch",
+                "click_extrude",
+            ]
+            and place_step.get("passed") is True
+            and extrude_step.get("passed") is True
+            and "PartDesign::DesignExtrude" in extrude_type_ids
+            and export_step.get("passed") is True
+            and exported_path.endswith(".step")
+            and export_bytes >= 1
+            and "place_closed_circle" in channel_source
+            and "Part.Circle" in channel_source
+            and "addGeometry" in channel_source
+            and "Import.export" in channel_source,
+            {
+                "sketch_step_ids": sketch_step_ids,
+                "extrude_type_ids": sorted(extrude_type_ids),
+                "exported_path": exported_path,
+                "export_bytes": export_bytes,
+            },
+        )
+    )
+    scenarios.append(
+        scenario(
+            "empty_sketch_and_rectangle_handler_do_not_create_a_solid",
+            pad_while_editing.get("failure_code") == "UI_TARGET_NOT_UNIQUE"
             and "found 0" in str(pad_while_editing.get("error") or "")
             and model_while_editing.get("failure_code") == "UI_TARGET_DISABLED"
             and rectangle_while_editing.get("ok") is True
@@ -278,17 +341,22 @@ def main() -> int:
             and rectangle_added_profile is False
             and leave.get("ok") is True
             and leave.get("object_name") == "Sketcher_LeaveSketch"
-            and extrude.get("ok") is True
-            and extrude.get("error") == "Linked shape object is empty"
-            and "PartDesign::DesignExtrude" not in type_ids
-            and "Sketcher::SketchObject" in type_ids,
+            and empty_extrude.get("ok") is True
+            and empty_extrude.get("error") == "Linked shape object is empty"
+            and "PartDesign::DesignExtrude" not in empty_type_ids
+            and "Sketcher::SketchObject" in empty_type_ids
+            and placed.get("ok") is True
+            and int((placed.get("result") or {}).get("geometry_count") or 0) >= 1
+            and filled_extrude.get("ok") is True
+            and not filled_extrude.get("error")
+            and "PartDesign::DesignExtrude" in filled_type_ids,
             {
-                "sketch_step_ids": sketch_step_ids,
                 "pad_while_editing": pad_while_editing.get("failure_code"),
                 "model_while_editing": model_while_editing.get("failure_code"),
                 "rectangle_added_profile": rectangle_added_profile,
-                "extrude_error": extrude.get("error"),
-                "type_ids": sorted(type_ids),
+                "empty_extrude_error": empty_extrude.get("error"),
+                "empty_type_ids": sorted(empty_type_ids),
+                "filled_type_ids": sorted(filled_type_ids),
             },
         )
     )

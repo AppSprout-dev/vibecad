@@ -31,13 +31,18 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert "PartDesign_NewBody" in workflows
     assert "Sketcher_NewSketch" in workflows
     assert "Sketcher_LeaveSketch" in workflows
-    assert "PartDesign_DesignExtrude" not in workflows
+    assert "PartDesign_DesignExtrude" in workflows
+    assert "place_closed_circle" in workflows
+    assert "export_step" in workflows
     assert "PartDesign_Pad" not in workflows
-    assert "Sketcher_CreateRectangle" in CHANNEL.read_text(encoding="utf-8")
+    assert "Part.Circle" in channel
+    assert "Import.export" in channel
+    assert "addGeometry" in channel
+    assert "/v1/run" in channel
     assert '"kind": "dialog"' in workflows
     assert '"text": "OK"' in workflows
     assert "Std_New" in workflows
-    assert "Std_Export" in workflows
+    assert "Std_Export" not in workflows
     assert "pyautogui" not in channel
     assert "SetCursorPos" not in channel
     assert "SendInput" not in channel

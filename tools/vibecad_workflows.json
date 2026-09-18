@@ -90,6 +90,38 @@
               "Sketcher::SketchObject"
             ]
           }
+        },
+        {
+          "id": "place_closed_profile",
+          "run": {
+            "id": "place_closed_circle"
+          },
+          "check": {
+            "sketch_geometry_min": 1
+          }
+        },
+        {
+          "id": "select_sketch",
+          "run": {
+            "id": "select_sketch"
+          },
+          "check": {
+            "run_ok": true
+          }
+        },
+        {
+          "id": "click_extrude",
+          "click": {
+            "kind": "action",
+            "text": "PartDesign_DesignExtrude"
+          },
+          "check": {
+            "tree_type_ids": [
+              "PartDesign::Body",
+              "Sketcher::SketchObject",
+              "PartDesign::DesignExtrude"
+            ]
+          }
         }
       ]
     },
@@ -165,10 +197,39 @@
           }
         },
         {
-          "id": "click_export",
+          "id": "place_closed_profile",
+          "run": {
+            "id": "place_closed_circle"
+          },
+          "check": {
+            "sketch_geometry_min": 1
+          }
+        },
+        {
+          "id": "select_sketch",
+          "run": {
+            "id": "select_sketch"
+          },
+          "check": {
+            "run_ok": true
+          }
+        },
+        {
+          "id": "seed_extrude",
           "click": {
             "kind": "action",
-            "text": "Std_Export"
+            "text": "PartDesign_DesignExtrude"
+          },
+          "check": {
+            "tree_type_ids": [
+              "PartDesign::DesignExtrude"
+            ]
+          }
+        },
+        {
+          "id": "export_step",
+          "run": {
+            "id": "export_step"
           },
           "check": {
             "exported": true,

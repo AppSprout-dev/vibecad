@@ -4,7 +4,10 @@
 
 The visible tour remains a demo. This harness posts the same
 ``/v1/ui/click`` body the tour posts, then checks documents and the model
-tree after every step. Code owns the click, the timeout, and pass/fail.
+tree after every step. Closed profiles and the export file go through the
+existing ``/v1/run`` route (``SketchObject.addGeometry(Part.Circle)`` and
+``Import.export``), not a second clicker. Code owns the click, the
+timeout, and pass/fail.
 
 Use ``--fake`` when no display is available. That still speaks HTTP on
 127.0.0.1. Jev is optional and off unless ``--judge`` is set and
@@ -143,9 +146,30 @@ def evaluate_check(
         missing = [item for item in required_types if item not in type_ids]
         if missing:
             errors.append(f"tree missing type ids {missing}; have {sorted(type_ids)}")
+    minimum_geometry = check.get("sketch_geometry_min")
+    if minimum_geometry is not None:
+        geometry_counts = [
+            int(item.get("geometry_count") or 0)
+            for item in objects
+            if isinstance(item, dict)
+            and str(item.get("type_id") or "") == "Sketcher::SketchObject"
+        ]
+        have = max(geometry_counts) if geometry_counts else 0
+        if have < int(minimum_geometry):
+            errors.append(
+                f"sketch_geometry_min {minimum_geometry} failed; found {have}"
+            )
+    run_result = (
+        click_payload.get("result")
+        if isinstance(click_payload.get("result"), dict)
+        else {}
+    )
+    if check.get("run_ok") and not click_payload.get("ok"):
+        errors.append("run_ok expected POST /v1/run to succeed")
     if check.get("exported"):
         exported = str(
-            click_payload.get("exported_path")
+            run_result.get("exported_path")
+            or click_payload.get("exported_path")
             or tree_payload.get("exported_path")
             or ""
         )
@@ -171,19 +195,33 @@ def run_step(
     timeout_seconds: float,
     judge_enabled: bool,
     judge_transport: Any = None,
+    export_path: str = "",
 ) -> dict[str, Any]:
     click_spec = dict(step.get("click") or {})
+    run_spec = dict(step.get("run") or {})
     started = time.monotonic()
-    click_payload = client.click(
-        str(click_spec.get("kind") or ""),
-        str(click_spec.get("text") or ""),
-        expected_process_id=click_spec.get("expected_process_id"),
-        expected_index=click_spec.get("expected_index"),
-    )
+    if run_spec:
+        recipe = str(run_spec.get("id") or "")
+        click_payload = client.run(
+            channel.workflow_run_python(recipe, export_path=export_path)
+        )
+        accepted = bool(click_payload.get("ok"))
+        click_error = str(
+            click_payload.get("error")
+            or click_payload.get("failure_code")
+            or "POST /v1/run failed"
+        )
+    else:
+        click_payload = client.click(
+            str(click_spec.get("kind") or ""),
+            str(click_spec.get("text") or ""),
+            expected_process_id=click_spec.get("expected_process_id"),
+            expected_index=click_spec.get("expected_index"),
+        )
+        accepted, click_error = click_accepted(click_payload)
     documents_payload = client.documents()
     tree_payload = client.inspect_tree()
     elapsed = time.monotonic() - started
-    accepted, click_error = click_accepted(click_payload)
     errors = [] if accepted else [click_error]
     if elapsed > timeout_seconds:
         errors.append(f"step exceeded timeout of {timeout_seconds:g}s")
@@ -198,7 +236,7 @@ def run_step(
     code_passed = not errors
     judge_state = {
         "workflow_step": step.get("id"),
-        "click": click_spec,
+        "click": click_spec or run_spec,
         "click_response": {
             key: click_payload.get(key)
             for key in (
@@ -209,6 +247,7 @@ def run_step(
                 "object_name",
                 "semantic_verified",
                 "input_method",
+                "result",
             )
         },
         "documents": documents_payload.get("documents"),
@@ -226,7 +265,8 @@ def run_step(
     passed = code_passed
     return {
         "id": step.get("id"),
-        "click": click_spec,
+        "click": click_spec or None,
+        "run": run_spec or None,
         "elapsed_s": round(elapsed, 3),
         "click_response": click_payload,
         "documents": documents_payload,
@@ -244,6 +284,7 @@ def run_workflow(
     timeout_seconds: float,
     judge_enabled: bool,
     judge_transport: Any = None,
+    export_path: str = "",
 ) -> dict[str, Any]:
     steps = []
     passed = True
@@ -256,6 +297,7 @@ def run_workflow(
             timeout_seconds=timeout_seconds,
             judge_enabled=judge_enabled,
             judge_transport=judge_transport,
+            export_path=export_path,
         )
         steps.append(result)
         if not result["passed"]:
@@ -276,6 +318,7 @@ def run_harness(
     timeout_seconds: float,
     judge_enabled: bool,
     judge_transport: Any = None,
+    export_path: str = "",
 ) -> dict[str, Any]:
     results = [
         run_workflow(
@@ -284,6 +327,7 @@ def run_harness(
             timeout_seconds=timeout_seconds,
             judge_enabled=judge_enabled,
             judge_transport=judge_transport,
+            export_path=export_path,
         )
         for workflow in workflows
     ]
@@ -345,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
 
     server = None
     export_home = None
+    export_path = str(Path(tempfile.gettempdir()) / "vibecad-workflow-harness.step")
     if args.fake:
         if args.output is not None:
             export_dir = args.output.parent
@@ -352,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             export_home = tempfile.TemporaryDirectory(prefix="vibecad-workflow-export-")
             export_dir = Path(export_home.name)
+        export_path = str(export_dir / "vibecad-workflow-harness.step")
         token = args.token or secrets.token_hex(24)
         server, base_url, _state = channel.start_fake_channel(str(export_dir), token)
         client = channel.AgentClickChannel(base_url, token, timeout_seconds=args.timeout)
@@ -374,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
             client=client,
             timeout_seconds=args.timeout,
             judge_enabled=args.judge,
+            export_path=export_path,
         )
     finally:
         if server is not None:

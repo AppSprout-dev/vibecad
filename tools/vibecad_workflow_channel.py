@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 TREE_INSPECT_PYTHON = """
+# vibecad.workflow-harness:inspect_tree
 doc = App.ActiveDocument
 result = {
     "document": None if doc is None else str(doc.Name),
@@ -30,11 +31,114 @@ result = {
             "name": str(obj.Name),
             "type_id": str(obj.TypeId),
             "label": str(getattr(obj, "Label", "") or ""),
+            "geometry_count": int(getattr(obj, "GeometryCount", 0) or 0),
         }
         for obj in list(doc.Objects)
     ],
 }
 """
+
+# Same in-process SketchObject.addGeometry + Part.Circle call
+# TestConsolidatedPartTools._circle_sketch,
+# TestSketcherSolver.CreateCircleSketch, and
+# TestDesignProfileRegionsGui._master_sketch already use in this tree.
+# Sketcher_CreateRectangle is a real command, but activated() only
+# starts DrawSketchHandlerRectangle; the two corners need view clicks.
+PLACE_CLOSED_CIRCLE_PYTHON = """
+# vibecad.workflow-harness:place_closed_circle
+import Part
+
+doc = App.ActiveDocument
+if doc is None:
+    raise RuntimeError("No active document")
+sketch = next(
+    (
+        obj
+        for obj in list(doc.Objects)
+        if obj.isDerivedFrom("Sketcher::SketchObject")
+    ),
+    None,
+)
+if sketch is None:
+    raise RuntimeError("No Sketcher::SketchObject")
+if int(sketch.GeometryCount) == 0:
+    sketch.addGeometry(
+        Part.Circle(App.Vector(0, 0, 0), App.Vector(0, 0, 1), 10),
+        False,
+    )
+if hasattr(sketch, "finalizeDesignDefinition"):
+    sketch.finalizeDesignDefinition()
+doc.recompute()
+result = {
+    "sketch": str(sketch.Name),
+    "geometry_count": int(sketch.GeometryCount),
+}
+"""
+
+SELECT_SKETCH_PYTHON = """
+# vibecad.workflow-harness:select_sketch
+doc = App.ActiveDocument
+if doc is None:
+    raise RuntimeError("No active document")
+sketch = next(
+    (
+        obj
+        for obj in list(doc.Objects)
+        if obj.isDerivedFrom("Sketcher::SketchObject")
+    ),
+    None,
+)
+if sketch is None:
+    raise RuntimeError("No Sketcher::SketchObject")
+Gui.Selection.clearSelection()
+Gui.Selection.addSelection(doc.Name, sketch.Name)
+result = {"selected": str(sketch.Name)}
+"""
+
+# Import.export is the in-process exporter Std_Export calls after
+# FileDialog::getSaveFileName (src/Mod/Import/App/AppImportPy.cpp).
+EXPORT_STEP_PYTHON = """
+# vibecad.workflow-harness:export_step
+import Import
+import os
+
+doc = App.ActiveDocument
+if doc is None:
+    raise RuntimeError("No active document")
+solid = next(
+    (
+        obj
+        for obj in list(doc.Objects)
+        if str(obj.TypeId) == "PartDesign::DesignExtrude"
+    ),
+    None,
+)
+if solid is None:
+    raise RuntimeError("No PartDesign::DesignExtrude to export")
+path = __EXPORT_PATH__
+Import.export([solid], path)
+result = {
+    "exported_path": path,
+    "bytes": os.path.getsize(path),
+    "object": str(solid.Name),
+    "type_id": str(solid.TypeId),
+}
+"""
+
+
+def workflow_run_python(recipe_id: str, *, export_path: str = "") -> str:
+    recipes = {
+        "place_closed_circle": PLACE_CLOSED_CIRCLE_PYTHON,
+        "select_sketch": SELECT_SKETCH_PYTHON,
+        "export_step": EXPORT_STEP_PYTHON.replace(
+            "__EXPORT_PATH__", json.dumps(str(export_path))
+        ),
+        "inspect_tree": TREE_INSPECT_PYTHON,
+    }
+    try:
+        return recipes[str(recipe_id or "").strip()]
+    except KeyError as exc:
+        raise ValueError(f"Unknown workflow run recipe {recipe_id!r}.") from exc
 
 
 def require_loopback_url(base_url: str) -> str:
@@ -151,6 +255,13 @@ class AgentClickChannel:
     def inspect_tree(self) -> dict[str, Any]:
         return self.request("POST", "/v1/run", {"python": TREE_INSPECT_PYTHON, "recompute": False})
 
+    def run(self, python: str, *, recompute: bool = True) -> dict[str, Any]:
+        return self.request(
+            "POST",
+            "/v1/run",
+            {"python": python, "recompute": bool(recompute)},
+        )
+
 
 class FakeAgentState:
     """In-memory GUI/document state for CI when no display is available."""
@@ -191,7 +302,112 @@ class FakeAgentState:
             return {"document": None, "objects": []}
         return {
             "document": document["name"],
-            "objects": list(document["objects"]),
+            "objects": [
+                {
+                    "name": obj["name"],
+                    "type_id": obj["type_id"],
+                    "label": obj["label"],
+                    "geometry_count": int(obj.get("geometry_count") or 0),
+                }
+                for obj in document["objects"]
+            ],
+        }
+
+    def run_python(self, source: str) -> dict[str, Any]:
+        document = self.active_document()
+        if "vibecad.workflow-harness:place_closed_circle" in source:
+            if document is None:
+                return {
+                    "ok": False,
+                    "failure_code": "SCRIPT_FAILED",
+                    "error": "No active document",
+                }
+            sketch = next(
+                (
+                    obj
+                    for obj in document["objects"]
+                    if obj["type_id"] == "Sketcher::SketchObject"
+                ),
+                None,
+            )
+            if sketch is None:
+                return {
+                    "ok": False,
+                    "failure_code": "SCRIPT_FAILED",
+                    "error": "No Sketcher::SketchObject",
+                }
+            sketch["closed_profile"] = True
+            sketch["geometry_count"] = max(int(sketch.get("geometry_count") or 0), 1)
+            return {
+                "ok": True,
+                "result": {
+                    "sketch": sketch["name"],
+                    "geometry_count": sketch["geometry_count"],
+                },
+            }
+        if "vibecad.workflow-harness:select_sketch" in source:
+            if document is None:
+                return {
+                    "ok": False,
+                    "failure_code": "SCRIPT_FAILED",
+                    "error": "No active document",
+                }
+            sketch = next(
+                (
+                    obj
+                    for obj in document["objects"]
+                    if obj["type_id"] == "Sketcher::SketchObject"
+                ),
+                None,
+            )
+            if sketch is None:
+                return {
+                    "ok": False,
+                    "failure_code": "SCRIPT_FAILED",
+                    "error": "No Sketcher::SketchObject",
+                }
+            return {"ok": True, "result": {"selected": sketch["name"]}}
+        if "vibecad.workflow-harness:export_step" in source:
+            if document is None:
+                return {
+                    "ok": False,
+                    "failure_code": "SCRIPT_FAILED",
+                    "error": "No active document",
+                }
+            solid = next(
+                (
+                    obj
+                    for obj in document["objects"]
+                    if obj["type_id"] == "PartDesign::DesignExtrude"
+                ),
+                None,
+            )
+            if solid is None:
+                return {
+                    "ok": False,
+                    "failure_code": "SCRIPT_FAILED",
+                    "error": "No PartDesign::DesignExtrude to export",
+                }
+            path = Path(self.export_dir) / f"{document['name']}.step"
+            path.write_text(
+                "ISO-10303-21; /* fake STEP from workflow harness */\n",
+                encoding="utf-8",
+            )
+            self.exported_path = str(path)
+            return {
+                "ok": True,
+                "result": {
+                    "exported_path": self.exported_path,
+                    "bytes": path.stat().st_size,
+                    "object": solid["name"],
+                    "type_id": solid["type_id"],
+                },
+                "exported_path": self.exported_path,
+            }
+        return {
+            "ok": True,
+            "result": self.tree_result(),
+            "exported_path": self.exported_path,
         }
 
     def click_payload(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -453,12 +669,13 @@ class FakeAgentState:
                 "semantic_verified": False,
             }
         document["objects"].append(
-            {
-                "name": "Sketch",
-                "type_id": "Sketcher::SketchObject",
-                "label": "Sketch",
-                "closed_profile": False,
-            }
+                {
+                    "name": "Sketch",
+                    "type_id": "Sketcher::SketchObject",
+                    "label": "Sketch",
+                    "closed_profile": False,
+                    "geometry_count": 0,
+                }
         )
         self.orientation_dialog = False
         self.sketch_edit = True
@@ -570,14 +787,7 @@ class _FakeHandler(BaseHTTPRequestHandler):
             self._write_json(200, state.click_payload(body))
             return
         if self.path == "/v1/run":
-            self._write_json(
-                200,
-                {
-                    "ok": True,
-                    "result": state.tree_result(),
-                    "exported_path": state.exported_path,
-                },
-            )
+            self._write_json(200, state.run_python(str(body.get("python") or "")))
             return
         self._write_json(404, {"ok": False, "failure_code": "NOT_FOUND"})
 

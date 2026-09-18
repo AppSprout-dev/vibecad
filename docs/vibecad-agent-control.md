@@ -405,15 +405,26 @@ After leave, the rebuilt Model ribbon surfaces
 `PartDesign_DesignExtrude`. An empty sketch makes
 `ProfileBased` throw `Linked shape object is empty` and
 `startConfiguredDesignProfileOperation` then raises
-`The Design operation task panel did not open`. The smallest
-closed-profile control on the sketch.edit Geometry group is
-`Sketcher_CreateRectangle` (child of
+`The Design operation task panel did not open` and aborts the
+transaction. The smallest closed-profile control on the
+sketch.edit Geometry group is `Sketcher_CreateRectangle` (child of
 `Sketcher_CompCreateRectangles`). Its `activated()` only starts
 `DrawSketchHandlerRectangle`; it does not add geometry. Placing
 the two corners needs viewport clicks, which `/v1/ui/click` kinds
-do not do. The harness therefore expects
-`PartDesign::DesignExtrude` only after a non-empty sketch, and
-this click path cannot create one.
+do not do. The harness therefore does not click that button to
+draw. After `Sketcher_LeaveSketch`, it posts the existing
+`/v1/run` route (already used for tree inspect) with the same
+`SketchObject.addGeometry(Part.Circle(...), False)` call
+`TestConsolidatedPartTools._circle_sketch` and
+`TestSketcherSolver.CreateCircleSketch` already use, then
+`Gui.Selection.addSelection` and the Extrude button. A pass
+leaves `PartDesign::Body`, a `Sketcher::SketchObject` with
+`GeometryCount >= 1`, and `PartDesign::DesignExtrude` in the
+tree. Export does not click `Std_Export`: that command's
+`activated()` opens `FileDialog::getSaveFileName`, which would
+hold the HTTP request. The harness writes the solid with
+`Import.export` from `src/Mod/Import/App/AppImportPy.cpp`, the
+same exporter the file dialog would call.
 A successful trigger
 counts as applied even when creating a document moves Qt focus;
 restoration fields stay on the payload for evidence. Optional `expected_process_id` and
