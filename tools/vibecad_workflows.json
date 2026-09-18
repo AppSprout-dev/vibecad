@@ -6,16 +6,6 @@
       "title": "New document",
       "steps": [
         {
-          "id": "open_file_menu",
-          "click": {
-            "kind": "menu",
-            "text": "File"
-          },
-          "check": {
-            "click_ok": true
-          }
-        },
-        {
           "id": "click_new",
           "click": {
             "kind": "action",
@@ -53,13 +43,26 @@
           }
         },
         {
-          "id": "click_sketch",
+          "id": "click_body",
           "click": {
             "kind": "action",
-            "text": "Sketcher_NewSketch"
+            "text": "PartDesign_NewBody"
           },
           "check": {
             "tree_type_ids": [
+              "PartDesign::Body"
+            ]
+          }
+        },
+        {
+          "id": "click_sketch",
+          "click": {
+            "kind": "action",
+            "text": "PartDesign_NewSketch"
+          },
+          "check": {
+            "tree_type_ids": [
+              "PartDesign::Body",
               "Sketcher::SketchObject"
             ]
           }
@@ -72,6 +75,7 @@
           },
           "check": {
             "tree_type_ids": [
+              "PartDesign::Body",
               "Sketcher::SketchObject",
               "PartDesign::Pad"
             ]
@@ -94,10 +98,32 @@
           }
         },
         {
+          "id": "select_model_ribbon",
+          "click": {
+            "kind": "ribbon",
+            "text": "Model"
+          },
+          "check": {
+            "click_ok": true
+          }
+        },
+        {
+          "id": "seed_body",
+          "click": {
+            "kind": "action",
+            "text": "PartDesign_NewBody"
+          },
+          "check": {
+            "tree_type_ids": [
+              "PartDesign::Body"
+            ]
+          }
+        },
+        {
           "id": "seed_sketch",
           "click": {
             "kind": "action",
-            "text": "Sketcher_NewSketch"
+            "text": "PartDesign_NewSketch"
           },
           "check": {
             "tree_type_ids": [
@@ -115,16 +141,6 @@
             "tree_type_ids": [
               "PartDesign::Pad"
             ]
-          }
-        },
-        {
-          "id": "open_file_menu",
-          "click": {
-            "kind": "menu",
-            "text": "File"
-          },
-          "check": {
-            "click_ok": true
           }
         },
         {

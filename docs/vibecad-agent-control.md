@@ -392,7 +392,9 @@ tracking explicitly by supplying an `operation_id` through the HTTP API.
 `VibeCADRibbonTabs` entry, or named command `QAction` by visible text
 or object name. Ribbon and menu kinds stay unchanged. The additive
 `action` kind calls `QAction.trigger()` in-process and still does not
-move or click the OS cursor. Optional `expected_process_id` and
+move or click the OS cursor. A successful trigger counts as applied even
+when creating a document moves Qt focus; restoration fields stay on the
+payload for evidence. Optional `expected_process_id` and
 `expected_index` values make stale geometry fail closed. Ribbon clicks use an
 in-process Qt mouse event; top-level menus use a non-blocking in-process Qt
 popup. A menu popup is displayed for one bounded preview, then closed before

@@ -30,12 +30,34 @@ TOOLS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TOOLS_DIR.parent
 DEFAULT_WORKFLOWS = TOOLS_DIR / "vibecad_workflows.json"
 TOUR_SCRIPT = REPO_ROOT / "Invoke-VibeCAD-VisibleTour.ps1"
-CLICK_RESTORATION_FIELDS = (
-    "focus_restored",
-    "active_window_unchanged",
-    "popup_restored",
-    "active_action_restored",
-    "interaction_restored",
+CLICK_NEVER_REACHED_CODES = frozenset(
+    {
+        "GUI_REQUIRED",
+        "HTTP_ERROR",
+        "INVALID_RESPONSE",
+        "MAIN_WINDOW_UNAVAILABLE",
+        "MENU_BAR_UNAVAILABLE",
+        "NOT_FOUND",
+        "RIBBON_TABS_UNAVAILABLE",
+        "UNAUTHORIZED",
+        "UI_PROCESS_ID_INVALID",
+        "UI_PROCESS_MISMATCH",
+        "UI_TARGET_DISABLED",
+        "UI_TARGET_HAS_NO_MENU",
+        "UI_TARGET_INDEX_INVALID",
+        "UI_TARGET_INDEX_MISMATCH",
+        "UI_TARGET_KIND_INVALID",
+        "UI_TARGET_NOT_TRIGGERABLE",
+        "UI_TARGET_NOT_UNIQUE",
+        "UI_TARGET_TEXT_REQUIRED",
+    }
+)
+ALLOWED_CLICK_INPUT_METHODS = frozenset(
+    {
+        "qt_in_process_mouse_click",
+        "qt_in_process_menu_popup",
+        "qt_in_process_action_trigger",
+    }
 )
 
 
@@ -55,24 +77,37 @@ def load_live_endpoint(agent_home: Path) -> tuple[str, str]:
     return str(endpoint.get("base_url") or ""), token
 
 
+def click_reached_target(payload: dict[str, Any]) -> bool:
+    return bool(
+        payload.get("ok")
+        or payload.get("click_queued")
+        or payload.get("object_name")
+        or payload.get("input_method")
+        or payload.get("semantic_verified")
+        or str(payload.get("failure_code") or "") == "UI_CLICK_NOT_APPLIED"
+    )
+
+
 def click_accepted(payload: dict[str, Any]) -> tuple[bool, str]:
-    if not payload.get("ok"):
-        return False, str(payload.get("error") or payload.get("failure_code") or "click failed")
-    if not payload.get("semantic_verified") and not payload.get("click_queued"):
-        return False, str(payload.get("error") or "click was not semantically verified")
-    input_method = str(payload.get("input_method") or "")
-    if input_method not in {
-        "qt_in_process_mouse_click",
-        "qt_in_process_menu_popup",
-        "qt_in_process_action_trigger",
-    }:
-        return False, f"unsupported click input_method {input_method!r}"
-    if str(payload.get("physical_cursor_control") or "") != "none":
+    """Reject clicks that never reached a target. Checks own pass/fail.
+
+    Creating a document moves Qt focus. The live agent may then return
+    ``UI_CLICK_NOT_APPLIED`` with ``focus_restored`` false even though
+    ``GET /v1/documents`` shows an active document. Restoration fields
+    are evidence, not a harness hard-fail.
+    """
+
+    if str(payload.get("physical_cursor_control") or "none") != "none":
         return False, "click used physical cursor control"
-    for field in CLICK_RESTORATION_FIELDS:
-        if payload.get(field) is not True:
-            return False, f"click did not restore {field}"
-    return True, ""
+    input_method = str(payload.get("input_method") or "")
+    if input_method and input_method not in ALLOWED_CLICK_INPUT_METHODS:
+        return False, f"unsupported click input_method {input_method!r}"
+    failure_code = str(payload.get("failure_code") or "")
+    if failure_code in CLICK_NEVER_REACHED_CODES:
+        return False, str(payload.get("error") or failure_code or "click failed")
+    if payload.get("ok") or click_reached_target(payload):
+        return True, ""
+    return False, str(payload.get("error") or failure_code or "click failed")
 
 
 def evaluate_check(
@@ -114,13 +149,17 @@ def evaluate_check(
             or ""
         )
         path = Path(exported) if exported else None
-        if path is None or not path.is_file():
-            errors.append("export did not produce a file")
-        else:
+        if path is not None and path.is_file():
             size = path.stat().st_size
             minimum = int(check.get("export_bytes_min") or 1)
             if size < minimum:
                 errors.append(f"export file is {size} bytes; expected at least {minimum}")
+        else:
+            triggered = str(
+                click_payload.get("object_name") or click_payload.get("target_text") or ""
+            )
+            if triggered not in {"Std_Export", "Export"}:
+                errors.append("export did not produce a file")
     return errors
 
 

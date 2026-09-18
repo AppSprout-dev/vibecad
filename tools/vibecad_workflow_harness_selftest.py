@@ -53,6 +53,15 @@ def main() -> int:
 
     report, _state, _base_url = _run_fake(workflows)
     workflow_ids = [item["id"] for item in report["workflows"]]
+    new_step = report["workflows"][0]["steps"][0]
+    new_click = new_step.get("click_response") or {}
+    sketch_clicks = [
+        str(step.get("click", {}).get("text") or "")
+        for item in report["workflows"]
+        if item["id"] == "sketch_then_pad"
+        for step in item["steps"]
+    ]
+    workflow_source = (TOOLS_DIR / "vibecad_workflows.json").read_text(encoding="utf-8")
     scenarios.append(
         scenario(
             "three_workflows_pass_without_typesafe_key",
@@ -67,6 +76,35 @@ def main() -> int:
             {
                 "passed": report["passed"],
                 "workflow_ids": workflow_ids,
+            },
+        )
+    )
+    scenarios.append(
+        scenario(
+            "workflows_use_visible_ribbon_and_part_design_commands",
+            '"kind": "menu"' not in workflow_source
+            and "PartDesign_NewBody" in sketch_clicks
+            and "PartDesign_NewSketch" in sketch_clicks
+            and "PartDesign_Pad" in sketch_clicks
+            and "Sketcher_NewSketch" not in sketch_clicks,
+            {"sketch_clicks": sketch_clicks},
+        )
+    )
+    scenarios.append(
+        scenario(
+            "new_document_lands_when_focus_moves",
+            new_step.get("passed") is True
+            and new_click.get("ok") is False
+            and new_click.get("failure_code") == "UI_CLICK_NOT_APPLIED"
+            and new_click.get("focus_restored") is False
+            and any(
+                isinstance(item, dict) and item.get("active")
+                for item in (new_step.get("documents") or {}).get("documents") or []
+            ),
+            {
+                "errors": new_step.get("errors"),
+                "failure_code": new_click.get("failure_code"),
+                "focus_restored": new_click.get("focus_restored"),
             },
         )
     )

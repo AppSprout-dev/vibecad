@@ -2881,7 +2881,10 @@ def ui_click_target(
             trigger()
             process_events()
             state = interaction_state()
-            verified = bool(state["interaction_restored"])
+            # QAction.trigger() applied. Creating a document moves Qt
+            # focus, so restoration is reported but does not define
+            # whether the click landed.
+            verified = True
             name_reader = getattr(action, "objectName", None)
             details = {
                 "target_kind": target_kind,

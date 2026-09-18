@@ -27,6 +27,12 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert "new_document" in workflows
     assert "sketch_then_pad" in workflows
     assert "\"export\"" in workflows
+    assert '"kind": "menu"' not in workflows
+    assert "PartDesign_NewBody" in workflows
+    assert "PartDesign_NewSketch" in workflows
+    assert "PartDesign_Pad" in workflows
+    assert "Std_New" in workflows
+    assert "Std_Export" in workflows
     assert "pyautogui" not in channel
     assert "SetCursorPos" not in channel
     assert "SendInput" not in channel

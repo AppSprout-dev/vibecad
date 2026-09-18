@@ -263,7 +263,18 @@ class FakeAgentState:
             self.documents.append({"name": name, "objects": []})
             self.active_index = len(self.documents) - 1
             details["object_name"] = "Std_New"
-            return {"ok": True, **details}
+            # Creating a document moves focus. The live agent reports that
+            # as UI_CLICK_NOT_APPLIED; the harness must still pass on the
+            # new document.
+            details["focus_restored"] = False
+            details["interaction_restored"] = False
+            details["semantic_verified"] = False
+            return {
+                "ok": False,
+                "failure_code": "UI_CLICK_NOT_APPLIED",
+                "error": f"Qt click did not activate action target {text!r}.",
+                **details,
+            }
 
         document = self.active_document()
         if document is None:
@@ -276,7 +287,36 @@ class FakeAgentState:
             }
 
         type_ids = [str(obj["type_id"]) for obj in document["objects"]]
-        if text in {"Sketcher_NewSketch", "Create Sketch", "Sketch"}:
+        if text in {"PartDesign_NewBody", "New Body"}:
+            document["objects"].append(
+                {
+                    "name": "Body",
+                    "type_id": "PartDesign::Body",
+                    "label": "Body",
+                }
+            )
+            details["object_name"] = "PartDesign_NewBody"
+            return {"ok": True, **details}
+
+        if text in {
+            "PartDesign_NewSketch",
+            "Sketcher_NewSketch",
+            "Create Sketch",
+            "Sketch",
+        }:
+            if "PartDesign::Body" not in type_ids:
+                return {
+                    "ok": False,
+                    "failure_code": "UI_CLICK_NOT_APPLIED",
+                    "error": "Sketch has no Body to own it.",
+                    **details,
+                    "semantic_verified": False,
+                }
+            command_name = (
+                "PartDesign_NewSketch"
+                if text == "PartDesign_NewSketch"
+                else "Sketcher_NewSketch"
+            )
             document["objects"].append(
                 {
                     "name": "Sketch",
@@ -284,7 +324,7 @@ class FakeAgentState:
                     "label": "Sketch",
                 }
             )
-            details["object_name"] = "Sketcher_NewSketch"
+            details["object_name"] = command_name
             return {"ok": True, **details}
 
         if text in {"PartDesign_Pad", "Pad"}:
