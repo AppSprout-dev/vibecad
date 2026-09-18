@@ -57,7 +57,7 @@ def main() -> int:
     new_step = report["workflows"][0]["steps"][0]
     new_click = new_step.get("click_response") or {}
     sketch_clicks = [
-        str(step.get("click", {}).get("text") or "")
+        str((step.get("click") or {}).get("text") or "")
         for item in report["workflows"]
         if item["id"] == "sketch_then_pad"
         for step in item["steps"]
