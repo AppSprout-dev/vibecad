@@ -202,6 +202,10 @@ result = {
 
 # Import.export is the in-process exporter Std_Export calls after
 # FileDialog::getSaveFileName (src/Mod/Import/App/AppImportPy.cpp).
+# WriterStep::write only throws on IFSelect RetError/RetFail/RetStop.
+# Live 6714cd65: Import.export returned, then os.path.getsize raised
+# FileNotFoundError on the Windows temp path. TopoShape.exportStep
+# (TopoShapePy / TopoShape.cpp) is the STEP write Part.export uses.
 EXPORT_STEP_PYTHON = """
 # vibecad.workflow-harness:export_step
 import Import
@@ -220,13 +224,37 @@ solid = next(
 )
 if solid is None:
     raise RuntimeError("No PartDesign::DesignExtrude to export")
+doc.recompute()
+shape = getattr(solid, "Shape", None)
+is_null = getattr(shape, "isNull", None)
+if shape is None or (callable(is_null) and bool(is_null())):
+    raise RuntimeError("PartDesign::DesignExtrude has no Shape to export")
+faces = list(getattr(shape, "Faces", []) or [])
+if not faces:
+    raise RuntimeError("PartDesign::DesignExtrude Shape has no Faces")
 path = __EXPORT_PATH__
+parent = os.path.dirname(path)
+if parent:
+    os.makedirs(parent, exist_ok=True)
+writer = "Import.export"
 Import.export([solid], path)
+if not os.path.isfile(path) or os.path.getsize(path) < 1:
+    exporter = getattr(shape, "exportStep", None)
+    if not callable(exporter):
+        raise RuntimeError("Shape.exportStep is unavailable")
+    exporter(path)
+    writer = "Shape.exportStep"
+if not os.path.isfile(path):
+    raise RuntimeError("STEP was not written at " + path)
+size = os.path.getsize(path)
+if size < 1:
+    raise RuntimeError("STEP at " + path + " is empty")
 result = {
     "exported_path": path,
-    "bytes": os.path.getsize(path),
+    "bytes": size,
     "object": str(solid.Name),
     "type_id": str(solid.TypeId),
+    "writer": writer,
 }
 """
 
@@ -582,6 +610,7 @@ class FakeAgentState:
                     "bytes": path.stat().st_size,
                     "object": solid["name"],
                     "type_id": solid["type_id"],
+                    "writer": "Import.export",
                 },
                 "exported_path": self.exported_path,
             }

@@ -43,6 +43,7 @@ def test_workflow_harness_reuses_the_tour_click_route() -> None:
     assert "PartDesign_Pad" not in workflows
     assert "Part.Circle" in channel
     assert "Import.export" in channel
+    assert "exportStep" in channel
     assert "addGeometry" in channel
     assert "/v1/run" in channel
     agent_control = (

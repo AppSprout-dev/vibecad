@@ -323,7 +323,8 @@ def main() -> int:
             and "leaveActiveSketch" in channel_source
             and "Part.Circle" in channel_source
             and "addGeometry" in channel_source
-            and "Import.export" in channel_source,
+            and "Import.export" in channel_source
+            and "exportStep" in channel_source,
             {
                 "sketch_step_ids": sketch_step_ids,
                 "extrude_type_ids": sorted(extrude_type_ids),
